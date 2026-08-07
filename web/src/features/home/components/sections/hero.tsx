@@ -103,15 +103,20 @@ export function Hero(props: HeroProps) {
         {/* Left Column: Title, description, action buttons and application support */}
         <div className='flex flex-col items-start text-left lg:col-span-6'>
           {/* Top Pill Badge */}
-          <div
-            className='landing-animate-fade-up mb-5 inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-[11px] font-medium text-blue-600 opacity-0 shadow-xs dark:border-blue-400/20 dark:bg-blue-400/5 dark:text-blue-400'
-            style={{ animationDelay: '0ms' }}
-          >
-            <span className='relative flex size-1.5'>
-              <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75' />
-              <span className='relative inline-flex size-1.5 rounded-full bg-blue-500 dark:bg-blue-400' />
+          <div className='landing-animate-fade-up mb-5 flex items-center gap-2 opacity-0' style={{ animationDelay: '0ms' }}>
+            <div
+              className='inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-[11px] font-medium text-blue-600 shadow-xs dark:border-blue-400/20 dark:bg-blue-400/5 dark:text-blue-400'
+            >
+              <span className='relative flex size-1.5'>
+                <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75' />
+                <span className='relative inline-flex size-1.5 rounded-full bg-blue-500 dark:bg-blue-400' />
+              </span>
+              <span>{t('AI Application Infrastructure Foundation')}</span>
+            </div>
+            <span className='inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-400'>
+              <span className='size-1.5 rounded-full bg-emerald-500' />
+              UPDATED
             </span>
-            <span>{t('AI Application Infrastructure Foundation')}</span>
           </div>
 
           <h1
