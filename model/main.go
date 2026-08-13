@@ -313,6 +313,7 @@ func migrateDB() error {
 			return err
 		}
 	}
+	EnsureDefaultModelCategories()
 	return nil
 }
 
@@ -396,6 +397,7 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	EnsureDefaultModelCategories()
 	common.SysLog("database migrated")
 	return nil
 }

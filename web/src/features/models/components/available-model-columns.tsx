@@ -24,7 +24,8 @@ import { TableId } from '@/components/table-id'
 import { GroupBadge } from '@/components/group-badge'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
-import type { AvailableModel } from '../types'
+import type { AvailableModel, ModelCategory } from '../types'
+import { CategoryCellEditor } from './category-cell-editor'
 
 function getCategoryIcon(iconKey: string) {
   return getLobeIcon(
@@ -33,10 +34,25 @@ function getCategoryIcon(iconKey: string) {
   )
 }
 
+function formatPricingCell(model: AvailableModel, t: (key: string) => string) {
+  if (model.quota_type === 1) {
+    if ((model.model_price ?? 0) <= 0) {
+      return t('Free price')
+    }
+    return `${t('Per-request')} ${model.model_price}`
+  }
+  if ((model.model_ratio ?? 0) <= 0) {
+    return t('Free price')
+  }
+  return `${t('Per token')} ${model.model_ratio}`
+}
+
 /**
  * Generate available models columns configuration
  */
-export function useAvailableModelsColumns(): ColumnDef<AvailableModel>[] {
+export function useAvailableModelsColumns(opts?: {
+  categories?: ModelCategory[]
+}): ColumnDef<AvailableModel>[] {
   const { t } = useTranslation()
 
   return [
@@ -75,26 +91,8 @@ export function useAvailableModelsColumns(): ColumnDef<AvailableModel>[] {
     },
 
     {
-      id: 'channel_count',
-      header: t('Channels'),
-      meta: { mobileHidden: true },
-      cell: ({ row }) => {
-        const count = row.original.channel_count
-        return (
-          <div className='flex items-center justify-center'>
-            <span className='inline-flex items-center rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary'>
-              {count}
-            </span>
-          </div>
-        )
-      },
-      size: 80,
-      enableSorting: true,
-    },
-
-    {
       id: 'channel_names',
-      header: t('Channel Names'),
+      header: t('Channel'),
       meta: { mobileHidden: true },
       cell: ({ row }) => {
         const names = row.original.channel_names ?? []
@@ -152,43 +150,62 @@ export function useAvailableModelsColumns(): ColumnDef<AvailableModel>[] {
     {
       id: 'categories',
       header: t('Categories'),
+      cell: ({ row }) => (
+        <CategoryCellEditor
+          model={row.original}
+          categories={opts?.categories ?? []}
+        />
+      ),
+      size: 180,
+      minSize: 120,
+    },
+
+    {
+      id: 'pricing',
+      header: t('Pricing'),
+      meta: { mobileHidden: true },
       cell: ({ row }) => {
-        const categories = row.original.categories ?? []
-        if (categories.length === 0) {
+        const text = formatPricingCell(row.original, t)
+        return (
+          <span className='inline-flex items-center rounded bg-primary/10 px-2 py-0.5 font-mono text-xs font-medium text-primary'>
+            {text}
+          </span>
+        )
+      },
+      size: 130,
+      minSize: 100,
+    },
+
+    {
+      id: 'tags',
+      header: t('Tags'),
+      cell: ({ row }) => {
+        const tags = row.original.tags ?? []
+        if (tags.length === 0) {
           return (
-            <span className='text-xs text-muted-foreground'>
-              {t('Uncategorized')}
-            </span>
+            <span className='text-xs text-muted-foreground'>{t('None')}</span>
           )
         }
         return (
           <div className='flex max-w-full flex-wrap gap-1'>
-            {categories.slice(0, 4).map((cat) => (
+            {tags.slice(0, 4).map((tag) => (
               <span
-                key={cat.id}
-                className='inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium'
-                style={{
-                  backgroundColor: `${cat.color}22`,
-                  color: cat.color,
-                }}
+                key={tag}
+                className='inline-flex items-center rounded bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground'
               >
-                <span
-                  className='inline-block size-1.5 rounded-full'
-                  style={{ backgroundColor: cat.color }}
-                />
-                {cat.name}
+                {tag}
               </span>
             ))}
-            {categories.length > 4 && (
+            {tags.length > 4 && (
               <span className='shrink-0 text-xs text-muted-foreground'>
-                +{categories.length - 4}
+                +{tags.length - 4}
               </span>
             )}
           </div>
         )
       },
-      size: 180,
-      minSize: 120,
+      size: 160,
+      minSize: 100,
     },
 
     {

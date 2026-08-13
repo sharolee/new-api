@@ -316,6 +316,10 @@ export interface AvailableModel {
   categories: ModelCategoryBrief[]
   has_model_meta: boolean
   model_meta_id?: number
+  model_ratio?: number
+  model_price?: number
+  quota_type?: number // 0 = per-token, 1 = per-request
+  tags?: string[]
 }
 
 /**

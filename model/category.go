@@ -4,6 +4,9 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 // ModelCategory represents a user-defined category for organizing available models.
@@ -125,6 +128,10 @@ type AvailableModelDTO struct {
 	Categories     []CategoryModelDTO  `json:"categories"`
 	HasModelMeta   bool                `json:"has_model_meta"`
 	ModelMetaID    *int                `json:"model_meta_id,omitempty"`
+	ModelRatio     float64             `json:"model_ratio"`
+	ModelPrice     float64             `json:"model_price"`
+	QuotaType      int                 `json:"quota_type"`
+	Tags           []string            `json:"tags"`
 }
 
 // AvailableModelsFilter holds optional filters for GetAvailableModels.
@@ -316,14 +323,20 @@ func GetAvailableModels(filter *AvailableModelsFilter) ([]AvailableModelDTO, int
 
 	// Check which model names exist in the models table
 	var existingModels []Model
-	if err := DB.Select("id, model_name").
+	if err := DB.Select("id, model_name, tags").
 		Where("model_name IN ?", modelNames).
 		Find(&existingModels).Error; err != nil {
 		// Non-fatal: degrade gracefully
 	}
-	metaMap := make(map[string]int)
+	metaMap := make(map[string]Model)
 	for _, m := range existingModels {
-		metaMap[m.ModelName] = m.Id
+		metaMap[m.ModelName] = m
+	}
+
+	// Pricing info per model (ratio/price/quota type) from the system pricing data
+	pricingByModel := make(map[string]Pricing)
+	for _, p := range GetPricing() {
+		pricingByModel[p.ModelName] = p
 	}
 
 	// Build result
@@ -335,6 +348,7 @@ func GetAvailableModels(filter *AvailableModelsFilter) ([]AvailableModelDTO, int
 			ChannelTypes: map[int]int{},
 			EnabledGroups: []string{},
 			Categories:   []CategoryModelDTO{},
+			Tags:         []string{},
 		}
 
 		info := modelChInfo[modelName]
@@ -357,9 +371,23 @@ func GetAvailableModels(filter *AvailableModelsFilter) ([]AvailableModelDTO, int
 			dto.Categories = cats
 		}
 
-		if metaID, ok := metaMap[modelName]; ok {
+		if meta, ok := metaMap[modelName]; ok {
 			dto.HasModelMeta = true
+			metaID := meta.Id
 			dto.ModelMetaID = &metaID
+			if strings.TrimSpace(meta.Tags) != "" {
+				for _, tag := range strings.Split(meta.Tags, ",") {
+					if tag = strings.TrimSpace(tag); tag != "" {
+						dto.Tags = append(dto.Tags, tag)
+					}
+				}
+			}
+		}
+
+		if p, ok := pricingByModel[modelName]; ok {
+			dto.ModelRatio = p.ModelRatio
+			dto.ModelPrice = p.ModelPrice
+			dto.QuotaType = p.QuotaType
 		}
 
 		result = append(result, dto)
@@ -406,4 +434,32 @@ func ValidateCategoryName(id int, name string) error {
 		return errors.New("category name already exists")
 	}
 	return nil
+}
+
+// EnsureDefaultModelCategories seeds the built-in model categories (Reasoning,
+// Image Generation, Video, Vision, Free of charge, Cost-Effective) when the
+// model_categories table is empty. Names are English i18n keys so the frontend
+// can translate them via t().
+func EnsureDefaultModelCategories() {
+	var count int64
+	if err := DB.Model(&ModelCategory{}).Count(&count).Error; err != nil {
+		common.SysLog("failed to check model categories: " + err.Error())
+		return
+	}
+	if count > 0 {
+		return
+	}
+	defaults := []ModelCategory{
+		{Name: "Reasoning", Description: "Reasoning-focused models", Color: "#6366F1", SortOrder: 1},
+		{Name: "Image Generation", Description: "Image generation models", Color: "#22c55e", SortOrder: 2},
+		{Name: "Video", Description: "Video generation models", Color: "#ef4444", SortOrder: 3},
+		{Name: "Vision", Description: "Vision and multimodal understanding models", Color: "#f59e0b", SortOrder: 4},
+		{Name: "Free of charge", Description: "Models available at no cost", Color: "#10b981", SortOrder: 5},
+		{Name: "Cost-Effective", Description: "Affordable, budget-friendly models", Color: "#06b6d4", SortOrder: 6},
+	}
+	if err := DB.Create(&defaults).Error; err != nil {
+		common.SysLog("failed to seed default model categories: " + err.Error())
+		return
+	}
+	common.SysLog("seeded default model categories")
 }

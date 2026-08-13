@@ -76,7 +76,7 @@ export function ModelsAvailableTable() {
     return [
       { label: t('All categories'), value: 'all' },
       ...categories.map((c) => ({
-        label: c.name,
+        label: t(c.name),
         value: String(c.id),
       })),
     ]
@@ -105,7 +105,7 @@ export function ModelsAvailableTable() {
   const models = data?.data?.items || []
   const totalCount = data?.data?.total || 0
 
-  const columns = useAvailableModelsColumns()
+  const columns = useAvailableModelsColumns({ categories })
 
   const { table } = useDataTable({
     data: models,

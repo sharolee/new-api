@@ -514,6 +514,16 @@ export const STATIC_I18N_KEYS = [
   'Uncategorized',
   'All channel types',
   'Filter by model name...',
+  'Pricing',
+  'Tags',
+  'Per-request',
+  'Per token',
+  'Free price',
+  'Free of charge',
+  'Cost-Effective',
+  'No categories yet',
+  'Edit categories',
+  'Something went wrong',
 
   // Grok settings
   'Grok Settings',
