@@ -23,6 +23,9 @@ tiktoken_cache
 plans
 .claude
 .cursor
+.opencode/
+.omo/
+openspec/
 
 electron/node_modules
 electron/dist

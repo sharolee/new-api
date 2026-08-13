@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { GetModelsParams, SearchModelsParams } from '../types'
+import type { GetModelsParams, SearchModelsParams, GetAvailableModelsParams } from '../types'
 
 /**
  * React Query cache keys for models
@@ -64,4 +64,27 @@ export const deploymentsQueryKeys = {
   }) => [...deploymentsQueryKeys.lists(), filters] as const,
   detail: (id: string | number) =>
     [...deploymentsQueryKeys.all, 'detail', id] as const,
+}
+
+/**
+ * React Query cache keys for available models (abilities table)
+ */
+export const availableModelsQueryKeys = {
+  all: ['available-models'] as const,
+  lists: () => [...availableModelsQueryKeys.all, 'list'] as const,
+  list: (filters: GetAvailableModelsParams) =>
+    [...availableModelsQueryKeys.lists(), filters] as const,
+  detail: (modelName: string) =>
+    [...availableModelsQueryKeys.all, 'detail', modelName] as const,
+}
+
+/**
+ * React Query cache keys for model categories
+ */
+export const modelCategoriesQueryKeys = {
+  all: ['model-categories'] as const,
+  lists: () => [...modelCategoriesQueryKeys.all, 'list'] as const,
+  list: () => [...modelCategoriesQueryKeys.lists()] as const,
+  detail: (id: number) =>
+    [...modelCategoriesQueryKeys.all, 'detail', id] as const,
 }

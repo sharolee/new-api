@@ -26,16 +26,17 @@ import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { listDeployments } from './api'
+import { listDeployments, getAvailableModels } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
 import { DeploymentsTable } from './components/deployments-table'
 import { CreateDeploymentDrawer } from './components/dialogs/create-deployment-drawer'
+import { ModelsAvailableTable } from './components/models-available-table'
 import { ModelsDialogs } from './components/models-dialogs'
 import { ModelsPrimaryButtons } from './components/models-primary-buttons'
 import { ModelsProvider, useModels } from './components/models-provider'
 import { ModelsTable } from './components/models-table'
 import { useModelDeploymentSettings } from './hooks/use-model-deployment-settings'
-import { deploymentsQueryKeys } from './lib'
+import { availableModelsQueryKeys, deploymentsQueryKeys } from './lib'
 import {
   type ModelsSectionId,
   MODELS_DEFAULT_SECTION,
@@ -47,6 +48,9 @@ const route = getRouteApi('/_authenticated/models/$section')
 const SECTION_META: Record<ModelsSectionId, { titleKey: string }> = {
   metadata: {
     titleKey: 'Metadata',
+  },
+  available: {
+    titleKey: 'Available',
   },
   deployments: {
     titleKey: 'Deployments',
@@ -87,16 +91,16 @@ function ModelsContent() {
     <>
       <SectionPageLayout fixedContent>
         <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          {activeSection === 'metadata' ? (
-            <ModelsPrimaryButtons />
-          ) : (
-            <Button onClick={() => setCreateDeploymentOpen(true)} size='sm'>
-              <Plus className='h-4 w-4' />
-              {t('Create deployment')}
-            </Button>
-          )}
-        </SectionPageLayout.Actions>
+<SectionPageLayout.Actions>
+           {activeSection === 'metadata' ? (
+             <ModelsPrimaryButtons />
+           ) : activeSection === 'available' ? null : (
+             <Button onClick={() => setCreateDeploymentOpen(true)} size='sm'>
+               <Plus className='h-4 w-4' />
+               {t('Create deployment')}
+             </Button>
+           )}
+         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='flex h-full min-h-0 flex-col gap-4'>
             <Tabs value={activeSection} onValueChange={handleSectionChange}>
@@ -108,13 +112,15 @@ function ModelsContent() {
                 ))}
               </TabsList>
             </Tabs>
-            <div className='min-h-0 flex-1'>
-              {activeSection === 'metadata' ? (
-                <ModelsTable />
-              ) : (
-                <DeploymentsSection />
-              )}
-            </div>
+<div className='min-h-0 flex-1'>
+               {activeSection === 'metadata' ? (
+                 <ModelsTable />
+               ) : activeSection === 'available' ? (
+                 <AvailableModelsSection />
+               ) : (
+                 <DeploymentsSection />
+               )}
+             </div>
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
@@ -126,6 +132,20 @@ function ModelsContent() {
       />
     </>
   )
+}
+
+function AvailableModelsSection() {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    queryClient.prefetchQuery({
+      queryKey: availableModelsQueryKeys.list({ p: 1, page_size: 50 }),
+      queryFn: () => getAvailableModels({ p: 1, page_size: 50 }),
+      staleTime: 30 * 1000,
+    })
+  }, [queryClient])
+
+  return <ModelsAvailableTable />
 }
 
 function DeploymentsSection() {

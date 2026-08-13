@@ -36,6 +36,13 @@ import type {
   SyncOverwritePayload,
   DeploymentSettingsResponse,
   ListDeploymentsResponse,
+  AvailableModel,
+  GetAvailableModelsParams,
+  GetAvailableModelsResponse,
+  ModelCategory,
+  GetCategoriesResponse,
+  AssignCategoriesPayload,
+  AssignCategoriesResponse,
 } from './types'
 
 // ============================================================================
@@ -629,5 +636,116 @@ export async function checkClusterNameAvailability(name: string): Promise<{
   const res = await api.get('/api/deployments/check-name', {
     params: { name },
   })
+  return res.data
+}
+
+// ============================================================================
+// Available Models (abilities table)
+// ============================================================================
+
+/**
+ * Get available models from the abilities table (what /playground shows)
+ */
+export async function getAvailableModels(
+  params: GetAvailableModelsParams = {}
+): Promise<GetAvailableModelsResponse> {
+  const res = await api.get('/api/models/available', { params })
+  return res.data
+}
+
+/**
+ * Get available model detail by name
+ */
+export async function getAvailableModel(
+  modelName: string
+): Promise<{ success: boolean; message?: string; data?: AvailableModel }> {
+  const res = await api.get(`/api/models/available/${encodeURIComponent(modelName)}`)
+  return res.data
+}
+
+// ============================================================================
+// Model Categories
+// ============================================================================
+
+/**
+ * Get all model categories
+ */
+export async function getCategories(): Promise<GetCategoriesResponse> {
+  const res = await api.get('/api/models/categories')
+  return res.data
+}
+
+/**
+ * Get a single category by ID
+ */
+export async function getCategory(
+  id: number
+): Promise<{ success: boolean; message?: string; data?: ModelCategory }> {
+  const res = await api.get(`/api/models/categories/${id}`)
+  return res.data
+}
+
+/**
+ * Create a new category
+ */
+export async function createCategory(data: {
+  name: string
+  description?: string
+  color?: string
+  sort_order?: number
+}): Promise<{ success: boolean; message?: string; data?: ModelCategory }> {
+  const res = await api.post('/api/models/categories', data)
+  return res.data
+}
+
+/**
+ * Update an existing category
+ */
+export async function updateCategory(
+  id: number,
+  data: {
+    name?: string
+    description?: string
+    color?: string
+    sort_order?: number
+  }
+): Promise<{ success: boolean; message?: string; data?: ModelCategory }> {
+  const res = await api.put(`/api/models/categories/${id}`, data)
+  return res.data
+}
+
+/**
+ * Delete a category
+ */
+export async function deleteCategory(
+  id: number
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.delete(`/api/models/categories/${id}`)
+  return res.data
+}
+
+/**
+ * Assign categories to a model
+ */
+export async function assignCategories(
+  modelName: string,
+  data: AssignCategoriesPayload
+): Promise<AssignCategoriesResponse> {
+  const res = await api.post(
+    `/api/models/available/${encodeURIComponent(modelName)}/categories`,
+    data
+  )
+  return res.data
+}
+
+/**
+ * Get categories for a model
+ */
+export async function getModelCategories(
+  modelName: string
+): Promise<{ success: boolean; message?: string; data?: ModelCategory[] }> {
+  const res = await api.get(
+    `/api/models/available/${encodeURIComponent(modelName)}/categories`
+  )
   return res.data
 }

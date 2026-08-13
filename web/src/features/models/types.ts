@@ -304,7 +304,95 @@ export type SyncSource = 'official' | 'config'
 /**
  * Model tab type
  */
-export type ModelTabCategory = 'metadata' | 'deployments'
+/**
+ * Available model entry (from abilities table, what /playground shows)
+ */
+export interface AvailableModel {
+  model_name: string
+  channel_count: number
+  channel_names: string[]
+  channel_types: Record<string, number> // channel_type_id -> count
+  enabled_groups: string[]
+  categories: ModelCategoryBrief[]
+  has_model_meta: boolean
+  model_meta_id?: number
+}
+
+/**
+ * Brief category info embedded in AvailableModel
+ */
+export interface ModelCategoryBrief {
+  id: number
+  name: string
+  color: string
+  description: string
+}
+
+/**
+ * Full model category entity
+ */
+export interface ModelCategory extends ModelCategoryBrief {
+  id: number
+  name: string
+  color: string
+  description: string
+  sort_order: number
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * Get available models parameters
+ */
+export interface GetAvailableModelsParams {
+  keyword?: string
+  ch_type?: string
+  group?: string
+  category_id?: string
+  p?: number
+  page_size?: number
+}
+
+/**
+ * Get available models response
+ */
+export interface GetAvailableModelsResponse {
+  success: boolean
+  data?: {
+    items: AvailableModel[]
+    total: number
+    page: number
+    page_size: number
+  }
+}
+
+/**
+ * Get categories response
+ */
+export interface GetCategoriesResponse {
+  success: boolean
+  data?: ModelCategory[]
+}
+
+/**
+ * Assign categories request
+ */
+export interface AssignCategoriesPayload {
+  category_ids: number[]
+}
+
+/**
+ * Category assignment response
+ */
+export interface AssignCategoriesResponse {
+  success: boolean
+  data?: {
+    model_name: string
+    category_ids: number[]
+  }
+}
+
+export type ModelTabCategory = 'metadata' | 'available' | 'deployments'
 
 /**
  * Deployment entity from API
