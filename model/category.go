@@ -192,10 +192,20 @@ func GetAvailableModels(filter *AvailableModelsFilter) ([]AvailableModelDTO, int
 
 	// First get distinct model names (for total count + to feed subqueries)
 	var modelNames []string
-	err := query.Distinct("model").Order("model").Pluck("model", &modelNames).Error
+	err := query.Distinct("model").Pluck("model", &modelNames).Error
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// Sort case-insensitively in Go so the order is identical across
+	// SQLite/MySQL/PostgreSQL regardless of their collation differences.
+	sort.Slice(modelNames, func(i, j int) bool {
+		li, lj := strings.ToLower(modelNames[i]), strings.ToLower(modelNames[j])
+		if li != lj {
+			return li < lj
+		}
+		return modelNames[i] < modelNames[j]
+	})
 
 	total := int64(len(modelNames))
 	if total == 0 {
