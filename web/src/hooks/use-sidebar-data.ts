@@ -126,7 +126,7 @@ export function useSidebarData(): SidebarData {
           },
           {
             title: t('Models'),
-            url: '/models/metadata',
+            url: '/models/available',
             icon: Box,
           },
           {

@@ -370,7 +370,7 @@ export function Dashboard() {
               )}
               <FadeIn delay={0.1}>
                 <Suspense fallback={<ModelChartsFallback />}>
-                  <LazyConsumptionDistributionChart
+                  <LazyTokenDistributionChart
                     data={modelData}
                     loading={dataLoading}
                     defaultChartType={
@@ -384,12 +384,10 @@ export function Dashboard() {
               </FadeIn>
               <FadeIn delay={0.15}>
                 <Suspense fallback={<ModelChartsFallback />}>
-                  <LazyTokenDistributionChart
+                  <LazyModelCharts
                     data={modelData}
                     loading={dataLoading}
-                    defaultChartType={
-                      chartPreferences.consumptionDistributionChart
-                    }
+                    defaultChartTab={chartPreferences.modelAnalyticsChart}
                     timeGranularity={
                       modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
                     }
@@ -398,10 +396,12 @@ export function Dashboard() {
               </FadeIn>
               <FadeIn delay={0.2}>
                 <Suspense fallback={<ModelChartsFallback />}>
-                  <LazyModelCharts
+                  <LazyConsumptionDistributionChart
                     data={modelData}
                     loading={dataLoading}
-                    defaultChartTab={chartPreferences.modelAnalyticsChart}
+                    defaultChartType={
+                      chartPreferences.consumptionDistributionChart
+                    }
                     timeGranularity={
                       modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
                     }
