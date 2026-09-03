@@ -180,15 +180,14 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				}
 			}
 		}
-	}})
-	
+	})
+
 	// Set upstream diagnostic context keys for zero-output cases
 	if upstreamStatusCode > 0 {
 		common.SetContextKey(c, constant.ContextKeyUpstreamStatusCode, upstreamStatusCode)
 	}
 	if len(upstreamChunkSamples) > 0 {
-		import "encoding/json"
-		chunkSamplesJSON, _ := json.Marshal(upstreamChunkSamples)
+		chunkSamplesJSON, _ := common.Marshal(upstreamChunkSamples)
 		common.SetContextKey(c, constant.ContextKeyUpstreamChunkSample, string(chunkSamplesJSON))
 	}
 

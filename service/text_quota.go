@@ -22,7 +22,6 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
-	"encoding/json"
 )
 
 // ToolSurchargeItem is one billable tool-call line for consume logs.
@@ -422,18 +421,19 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes)
 		}
 	}
-	}
+	// }
 
-	// Add upstream diagnostic information to log content for zero-output cases
+	// Check for zero-output case to collect upstream diagnostic information
+	var upstreamStatusCode int
+	var upstreamChunkSample string
 	if summary.PromptTokens > 0 && summary.CompletionTokens == 0 {
-		if upstreamStatusCode := common.GetContextKeyInt(ctx, constant.ContextKeyUpstreamStatusCode); upstreamStatusCode > 0 {
-			extraContent = append(extraContent, fmt.Sprintf("上游状态码: %d", upstreamStatusCode))
+		if statusCode := common.GetContextKeyInt(ctx, constant.ContextKeyUpstreamStatusCode); statusCode > 0 {
+			upstreamStatusCode = statusCode
+			extraContent = append(extraContent, fmt.Sprintf("上游响应码: %d", statusCode))
 		}
 		if chunkSampleJSON := common.GetContextKeyString(ctx, constant.ContextKeyUpstreamChunkSample); chunkSampleJSON != "" {
-			var chunkSamples []string
-			if err := json.Unmarshal([]byte(chunkSampleJSON), &chunkSamples); err == nil && len(chunkSamples) > 0 {
-				extraContent = append(extraContent, fmt.Sprintf("上游chunk样本: %v", chunkSamples))
-			}
+			upstreamChunkSample = chunkSampleJSON
+			extraContent = append(extraContent, fmt.Sprintf("上游响应样本: %s", chunkSampleJSON))
 		}
 	}
 
@@ -534,6 +534,15 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
+	}
+	// Add upstream diagnostic information to other map for zero-output cases
+	if summary.PromptTokens > 0 && summary.CompletionTokens == 0 {
+		if upstreamStatusCode > 0 {
+			other["upstream_status_code"] = upstreamStatusCode
+		}
+		if upstreamChunkSample != "" {
+			other["upstream_chunk_sample"] = upstreamChunkSample
+		}
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
