@@ -485,6 +485,10 @@ func GeminiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		TotalTokens:      imageTokens * generatedImages,
 	}
 
+	// Zero-output diagnostic: image generation APIs have no completion_tokens by design
+	common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputImageOnly)
+	common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+
 	return usage, nil
 }
 

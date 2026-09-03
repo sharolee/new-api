@@ -169,6 +169,13 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		}
 		claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
 	}
+
+	// Zero-output diagnostic for Claude stream handler
+	if claudeInfo.Usage.PromptTokens > 0 && claudeInfo.Usage.CompletionTokens == 0 {
+		common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputUpstreamUsageZero)
+		common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, claudeInfo.ResponseText.Len() > 0)
+	}
+
 	if claudeInfo.Usage != nil {
 		claudeInfo.Usage.UsageSemantic = "anthropic"
 	}

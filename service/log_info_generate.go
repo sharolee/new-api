@@ -106,6 +106,28 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 		adminInfo["local_count_tokens"] = isLocalCountTokens
 	}
 
+	// Zero-output diagnostic: if a handler marked this request as having
+	// zero completion_tokens, surface the reason under admin_info.zero_output and
+	// (for genuinely problematic reasons) write the generic error_code into
+	// other so the admin error statistics pick it up. Non-admin users only
+	// see the error_code, never the reason.
+	zeroOutputReason, _ := common.GetContextKey(ctx, constant.ContextKeyZeroOutputReason)
+	zeroOutputHasText := common.GetContextKeyBool(ctx, constant.ContextKeyZeroOutputHasText)
+	if zeroOutputReason != nil {
+		reasonStr := zeroOutputReason.(string)
+		if reasonStr != "" {
+			zeroOutputInfo := map[string]interface{}{
+				"reason":   reasonStr,
+				"has_text": zeroOutputHasText,
+			}
+			adminInfo["zero_output"] = zeroOutputInfo
+
+			if IsZeroOutputProblem(reasonStr) {
+				other["error_code"] = string(types.ErrorCodeUpstreamEmptyCompletion)
+			}
+		}
+	}
+
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 
 	other["admin_info"] = adminInfo

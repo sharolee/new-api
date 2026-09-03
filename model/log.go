@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"sort"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -652,8 +653,14 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
 	}
 
-	tx = tx.Where("type = ?", LogTypeConsume)
-	rpmTpmQuery = rpmTpmQuery.Where("type = ?", LogTypeConsume)
+	// 尊重传入的 logType 参数；LogTypeUnknown(0) 表示查询所有类型
+	if logType == 0 {
+		// type=0 为通配符，不限制日志类型（保持向后兼容）
+	} else {
+		tx = tx.Where("type = ?", logType)
+		rpmTpmQuery = rpmTpmQuery.Where("type = ?", logType)
+	}
+
 
 	// 只统计最近60秒的rpm和tpm
 	rpmTpmQuery = rpmTpmQuery.Where("created_at >= ?", time.Now().Add(-60*time.Second).Unix())
@@ -688,8 +695,13 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if modelName != "" {
 		tx = tx.Where("model_name = ?", modelName)
 	}
-	tx.Where("type = ?", LogTypeConsume).Scan(&token)
+	if logType == 0 || logType == LogTypeConsume {
+		tx.Where("type = ?", LogTypeConsume).Scan(&token)
+	} else {
+		tx.Where("type = ?", logType).Scan(&token)
+	}
 	return token
+
 }
 
 func CountOldLog(ctx context.Context, targetTimestamp int64) (int64, error) {
@@ -733,5 +745,62 @@ func DeleteOldLogBatch(ctx context.Context, targetTimestamp int64, limit int) (i
 	if nil != result.Error {
 		return 0, result.Error
 	}
-	return result.RowsAffected, nil
+return result.RowsAffected, nil
 }
+
+type ErrorLogStatsItem struct {
+	ChannelId   int    `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	ErrorCode   string `json:"error_code"`
+	Count       int    `json:"count"`
+}
+type DateErrorStats struct {
+	Date      string         `json:"date"`
+	Total     int            `json:"total"`
+	ByError   map[string]int `json:"by_error"`
+	ByChannel map[string]int `json:"by_channel"`
+}
+type ErrorLogStats struct {
+	Total     int                   `json:"total"`
+	ByChannel map[string]int        `json:"by_channel"`
+	ByError   map[string]int        `json:"by_error"`
+	ByDate    []DateErrorStats      `json:"by_date"`
+	Detail    []ErrorLogStatsItem   `json:"detail"`
+}
+func GetErrorLogStats(startTimestamp, endTimestamp int64, username, modelName, group string, channelId int, granularity string) (*ErrorLogStats, error) {
+	stats := &ErrorLogStats{ByChannel: make(map[string]int), ByError: make(map[string]int)}
+	var logs []*Log
+	tx := LOG_DB.Where("type = ?", LogTypeError)
+	if username != "" { tx = tx.Where("username = ?", username) }
+	if modelName != "" { tx = tx.Where("model_name = ?", modelName) }
+	if group != "" { tx = tx.Where(logGroupCol+" = ?", group) }
+	if channelId > 0 { tx = tx.Where("channel_id = ?", channelId) }
+	if startTimestamp > 0 { tx = tx.Where("created_at >= ?", startTimestamp) }
+	if endTimestamp > 0 { tx = tx.Where("created_at <= ?", endTimestamp) }
+	err := tx.Find(&logs).Error
+	if err != nil { return nil, err }
+	bucketSize := int64(3600)
+	if granularity == "day" { bucketSize = 86400 }
+	channelErrorMap := make(map[string]*ErrorLogStatsItem)
+	dateMap := make(map[string]*DateErrorStats)
+	for _, log := range logs {
+		channelKey := fmt.Sprintf("%d", log.ChannelId)
+		var otherMap map[string]interface{}
+		if log.Other != "" { if m, err := common.StrToMap(log.Other); err == nil { otherMap = m } }
+		errorCode := "unknown"
+		if otherMap != nil { if code, ok := otherMap["error_code"].(string); ok && code != "" { errorCode = code } }
+		stats.ByChannel[channelKey]++
+		stats.ByError[errorCode]++
+		ceKey := channelKey + "|" + errorCode
+	if existing, ok := channelErrorMap[ceKey]; ok { existing.Count++ } else { channelErrorMap[ceKey] = &ErrorLogStatsItem{ChannelId: log.ChannelId, ChannelName: log.ChannelName, ErrorCode: errorCode, Count: 1} }
+		bucketKey := fmt.Sprintf("%d", log.CreatedAt/bucketSize*bucketSize)
+	if ds, ok := dateMap[bucketKey]; ok { ds.Total++; ds.ByError[errorCode]++; ds.ByChannel[channelKey]++ } else { dateMap[bucketKey] = &DateErrorStats{Date: bucketKey, Total: 1, ByError: map[string]int{errorCode: 1}, ByChannel: map[string]int{channelKey: 1}} }
+	}
+	stats.Detail = make([]ErrorLogStatsItem, 0, len(channelErrorMap))
+	for _, item := range channelErrorMap { stats.Detail = append(stats.Detail, *item) }
+	dateKeys := make([]string, 0, len(dateMap))
+	sort.Strings(dateKeys)
+	for _, key := range dateKeys { stats.ByDate = append(stats.ByDate, *dateMap[key]) }
+	return stats, nil
+}
+

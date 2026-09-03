@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -69,6 +70,12 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	imageCounter.Commit(info)
 
+	// Zero-output diagnostic for OpenAI Responses non-stream handler
+	if usage.PromptTokens > 0 && usage.CompletionTokens == 0 && responsesResponse.Usage != nil {
+		common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputUpstreamUsageZero)
+		common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+	}
+
 	return &usage, nil
 }
 
@@ -85,7 +92,24 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
 
+	// Upstream diagnostic information for zero-output cases
+	var upstreamStatusCode int
+	var upstreamChunkSamples []string
+	const maxChunkSamples = 5 // Keep only first few samples to avoid excessive memory usage
+
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		// Collect upstream diagnostic information for zero-output cases
+		if upstreamStatusCode == 0 {
+			upstreamStatusCode = resp.StatusCode
+		}
+		if len(upstreamChunkSamples) < maxChunkSamples && len(data) > 0 {
+			// Store a preview of the chunk (first 100 chars) to avoid excessive logging
+			preview := data
+			if len(preview) > 100 {
+				preview = preview[:100] + "..."
+			}
+			upstreamChunkSamples = append(upstreamChunkSamples, preview)
+		}
 
 		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
@@ -156,7 +180,17 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				}
 			}
 		}
-	})
+	}})
+	
+	// Set upstream diagnostic context keys for zero-output cases
+	if upstreamStatusCode > 0 {
+		common.SetContextKey(c, constant.ContextKeyUpstreamStatusCode, upstreamStatusCode)
+	}
+	if len(upstreamChunkSamples) > 0 {
+		import "encoding/json"
+		chunkSamplesJSON, _ := json.Marshal(upstreamChunkSamples)
+		common.SetContextKey(c, constant.ContextKeyUpstreamChunkSample, string(chunkSamplesJSON))
+	}
 
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
@@ -173,6 +207,26 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+
+	// Zero-output diagnostic for OpenAI Responses stream handler
+	if usage.PromptTokens > 0 && usage.CompletionTokens == 0 {
+		responseText := responseTextBuilder.String()
+		if responseText == "" {
+			// Stream accumulated zero non-empty content chunks
+			common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputStreamEmpty)
+			common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+		} else {
+			// Has text but upstream didn't provide usage and local recount also failed
+			common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputUpstreamNoUsage)
+			common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, true)
+		}
+	} else if usage.CompletionTokens > 0 && usage.PromptTokens > 0 {
+		// Local recount produced non-zero (healed from upstream zero)
+		// Check if upstream originally had zero completion tokens
+		// This is a diagnostic marker for the healed case
+		common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputLocalRecountNonzero)
+		common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, true)
+	}
 
 	return usage, nil
 }

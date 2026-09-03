@@ -129,3 +129,43 @@ func GetUserFlowQuotaDates(c *gin.Context) {
 	})
 	return
 }
+
+func GetAllErrorLogStats(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	username := c.Query("username")
+	modelName := c.Query("model_name")
+	group := c.Query("group")
+	channel, _ := strconv.Atoi(c.Query("channel"))
+	granularity := c.Query("granularity")
+	if granularity == "" {
+		granularity = "hour"
+	}
+	stats, err := model.GetErrorLogStats(startTimestamp, endTimestamp, username, modelName, group, channel, granularity)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": stats})
+	return
+}
+
+func GetUserErrorLogStats(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	granularity := c.Query("granularity")
+	if granularity == "" {
+		granularity = "hour"
+	}
+	if endTimestamp-startTimestamp > 2592000 {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "time range too large"})
+		return
+	}
+	stats, err := model.GetErrorLogStats(startTimestamp, endTimestamp, "", "", "", 0, granularity)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": stats})
+	return
+}

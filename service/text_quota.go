@@ -22,6 +22,7 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
+	"encoding/json"
 )
 
 // ToolSurchargeItem is one billable tool-call line for consume logs.
@@ -419,6 +420,20 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			tieredBillingApplied = true
 			tieredResult = tieredRes
 			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes)
+		}
+	}
+	}
+
+	// Add upstream diagnostic information to log content for zero-output cases
+	if summary.PromptTokens > 0 && summary.CompletionTokens == 0 {
+		if upstreamStatusCode := common.GetContextKeyInt(ctx, constant.ContextKeyUpstreamStatusCode); upstreamStatusCode > 0 {
+			extraContent = append(extraContent, fmt.Sprintf("上游状态码: %d", upstreamStatusCode))
+		}
+		if chunkSampleJSON := common.GetContextKeyString(ctx, constant.ContextKeyUpstreamChunkSample); chunkSampleJSON != "" {
+			var chunkSamples []string
+			if err := json.Unmarshal([]byte(chunkSampleJSON), &chunkSamples); err == nil && len(chunkSamples) > 0 {
+				extraContent = append(extraContent, fmt.Sprintf("上游chunk样本: %v", chunkSamples))
+			}
 		}
 	}
 

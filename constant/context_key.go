@@ -73,4 +73,22 @@ const (
 	// fallback in authHelper (finishAdminAudit) skips its record to avoid
 	// duplicate entries.
 	ContextKeyAuditLogged ContextKey = "audit_logged"
+
+	// ContextKeyZeroOutputReason stores a fine-grained reason string explaining why
+	// this request ended up with zero completion_tokens. Admin-only: written under
+	// admin_info.zero_output in the consume log.
+	ContextKeyZeroOutputReason ContextKey = "zero_output_reason"
+
+	// ContextKeyZeroOutputHasText records whether the upstream stream/response
+	// actually produced any non-empty text content even though completion_tokens was
+	// zero or missing. Admin-only: written alongside zero_output_reason.
+	ContextKeyZeroOutputHasText ContextKey = "zero_output_has_text"
+
+	// ContextKeyUpstreamStatusCode stores the HTTP status code from the upstream
+	// response for diagnostic purposes in zero-output cases.
+	ContextKeyUpstreamStatusCode ContextKey = "upstream_status_code"
+
+	// ContextKeyUpstreamChunkSample stores a sample of upstream response chunks
+	// (JSON encoded) for diagnostic purposes in zero-output cases.
+	ContextKeyUpstreamChunkSample ContextKey = "upstream_chunk_sample"
 )

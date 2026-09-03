@@ -125,7 +125,25 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// 检查是否为音频模型
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
+	// Upstream diagnostic information for zero-output cases
+	var upstreamStatusCode int
+	var upstreamChunkSamples []string
+	const maxChunkSamples = 5 // Keep only first few samples to avoid excessive memory usage
+
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		// Collect upstream diagnostic information for zero-output cases
+		if upstreamStatusCode == 0 {
+			upstreamStatusCode = resp.StatusCode
+		}
+		if len(upstreamChunkSamples) < maxChunkSamples && len(data) > 0 {
+			// Store a preview of the chunk (first 100 chars) to avoid excessive logging
+			preview := data
+			if len(preview) > 100 {
+				preview = preview[:100] + "..."
+			}
+			upstreamChunkSamples = append(upstreamChunkSamples, preview)
+		}
+
 		if lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
@@ -145,7 +163,17 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				sr.Error(err)
 			}
 		}
-	})
+	}})
+	
+	// Set upstream diagnostic context keys for zero-output cases
+	if upstreamStatusCode > 0 {
+		common.SetContextKey(c, constant.ContextKeyUpstreamStatusCode, upstreamStatusCode)
+	}
+	if len(upstreamChunkSamples) > 0 {
+		import "encoding/json"
+		chunkSamplesJSON, _ := json.Marshal(upstreamChunkSamples)
+		common.SetContextKey(c, constant.ContextKeyUpstreamChunkSample, string(chunkSamplesJSON))
+	}
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
 	if isAudioModel && secondLastStreamData != "" {
@@ -181,6 +209,29 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	if !containStreamUsage {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
+	}
+
+	// Zero-output diagnostic for stream OpenAI handler
+	if usage.PromptTokens > 0 && usage.CompletionTokens == 0 {
+		responseText := responseTextBuilder.String()
+		hasToolCalls := len(streamFunctionCallNames) > 0
+		if responseText == "" && hasToolCalls {
+			// Only tool calls, no text content
+			common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputToolCallOnly)
+			common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+		} else if responseText == "" {
+			// Stream accumulated zero non-empty content chunks
+			common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputStreamEmpty)
+			common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+		} else {
+			// Has text content but upstream didn't provide usage
+			common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputUpstreamNoUsage)
+			common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, true)
+		}
+	} else if usage.CompletionTokens > 0 && !containStreamUsage {
+		// Local recount produced non-zero (healed)
+		common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputLocalRecountNonzero)
+		common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, true)
 	}
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
@@ -286,6 +337,38 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
 		}
 		usageModified = true
+	}
+
+	// Zero-output diagnostic for non-stream OpenAI handler
+	if simpleResponse.Usage.PromptTokens > 0 && simpleResponse.Usage.CompletionTokens == 0 {
+		hasToolCallsOnly := false
+		for _, choice := range simpleResponse.Choices {
+			toolCalls := choice.Message.ParseToolCalls()
+			if len(toolCalls) > 0 {
+				// Check if there's any actual text content
+				hasText := len(choice.Message.StringContent()) > 0 || len(choice.Message.GetReasoningContent()) > 0
+				if !hasText {
+					hasToolCallsOnly = true
+					break
+				}
+			}
+		}
+		if hasToolCallsOnly {
+			common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputToolCallOnly)
+			common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+		} else if !usageModified {
+			// Upstream directly gave usage with completion_tokens=0
+			common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputUpstreamUsageZero)
+			common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+		} else {
+			// Local recount was done but still zero
+			common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputLocalRecountZero)
+			common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+		}
+	} else if usageModified && simpleResponse.Usage.CompletionTokens > 0 {
+		// Local recount healed the zero completion (diagnostic, not an error)
+		common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputLocalRecountNonzero)
+		common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, true)
 	}
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)

@@ -20,6 +20,9 @@
 .PARAMETER SkipBuild
     跳过镜像构建步骤，直接用现有镜像重启容器
 
+.PARAMETER NoBuildCache
+    构建镜像时使用 --no-cache，不使用docker构建缓存，调试源码编译问题打开
+
 .EXAMPLE
     .\redeploy.ps1
     默认全流程：构建镜像 + 替换容器
@@ -27,6 +30,10 @@
 .EXAMPLE
     .\redeploy.ps1 -SkipBuild
     跳过构建，仅用现有镜像重新部署容器
+
+.EXAMPLE
+    .\redeploy.ps1 -NoBuildCache
+    构建不使用缓存，输出完整编译日志，用于排错
 
 .EXAMPLE
     .\redeploy.ps1 -Port 3001 -DataDir "E:\newapi-data"
@@ -39,10 +46,12 @@ param(
     [string]$ContainerName = "new-api",
     [int]   $Port          = 3000,
     [string]$DataDir       = "D:\ProgramData\newapi",
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$NoBuildCache
 )
 
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 function Write-Step  { param($msg) Write-Host "`n[STEP] $msg" -ForegroundColor Cyan }
 function Write-Ok    { param($msg) Write-Host "  [OK] $msg" -ForegroundColor Green }
@@ -79,15 +88,19 @@ if ($SkipBuild) {
 } else {
     Write-Step "构建镜像: $ImageName"
     Write-Host "  这个过程包含前端 bun build + 后端 go build，可能需要几分钟..."
-    & docker build -t $ImageName . 2>&1 | ForEach-Object {
-        # 只显示关键行（节省输出噪音）
-        if ($_ -match "^#\d+ (DONE|CACHED|ERROR)|^ERROR|naming to|exporting manifest") {
-            Write-Host "  $_"
-        }
+
+    $buildArgs = @("build","-t",$ImageName)
+    if ($NoBuildCache) {
+        $buildArgs += "--no-cache"
     }
+    $buildArgs += "."
+
+    $env:DOCKER_BUILDKIT = "0"
+    & docker @buildArgs
+    Remove-Item Env:DOCKER_BUILDKIT -ErrorAction SilentlyContinue
+
     if ($LASTEXITCODE -ne 0) {
         Write-Err "镜像构建失败 (exit $LASTEXITCODE)"
-        Write-Host "  完整日志请运行: docker build -t $ImageName . --no-cache"
         exit 1
     }
     Write-Ok "镜像构建成功"
@@ -97,14 +110,20 @@ if ($SkipBuild) {
 Write-Step "处理旧容器: $ContainerName"
 
 $existing = & docker ps -a --filter "name=^/$ContainerName$" --format "{{.Names}}"
+if ($LASTEXITCODE -ne 0) { throw "docker ps 查询容器异常" }
+
 if ($existing -eq $ContainerName) {
     $running = & docker ps --filter "name=^/$ContainerName$" --format "{{.Names}}"
+    if ($LASTEXITCODE -ne 0) { throw "docker ps 查询运行容器异常" }
+
     if ($running -eq $ContainerName) {
         Write-Host "  停止运行中的容器..."
-        & docker stop $ContainerName | Out-Null
+        & docker stop $ContainerName
+        if ($LASTEXITCODE -ne 0) { Write-Warn2 "stop容器返回非0" }
         Write-Ok "容器已停止"
     }
-    & docker rm $ContainerName | Out-Null
+    & docker rm $ContainerName
+    if ($LASTEXITCODE -ne 0) { throw "移除旧容器失败" }
     Write-Ok "旧容器已移除"
 } else {
     Write-Ok "未发现旧容器，直接创建"
@@ -122,8 +141,7 @@ $runArgs = @(
     "--restart", "unless-stopped",
     $ImageName
 )
-& docker @runArgs | Out-Null
-
+& docker @runArgs
 if ($LASTEXITCODE -ne 0) {
     Write-Err "容器启动失败 (exit $LASTEXITCODE)"
     exit 1
@@ -136,6 +154,8 @@ Write-Step "健康检查"
 Start-Sleep -Seconds 3
 
 $status = & docker inspect $ContainerName --format "{{.State.Status}}"
+if ($LASTEXITCODE -ne 0) { throw "docker inspect 查询容器状态失败" }
+
 if ($status -ne "running") {
     Write-Err "容器状态异常: $status"
     Write-Host "  查看日志: docker logs $ContainerName"

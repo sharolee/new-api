@@ -112,6 +112,11 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
 
+	// Zero-output diagnostic: TTS audio generation - completion_tokens derived from audio duration
+	// If completion_tokens is 0, it means no duration metadata or empty audio
+	common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputAudioOnly)
+	common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+
 	return usage
 }
 
@@ -145,5 +150,11 @@ func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 	usage.PromptTokens = info.GetEstimatePromptTokens()
 	usage.CompletionTokens = 0
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+
+	// Zero-output diagnostic: STT audio transcription - completion_tokens not applicable
+	// When upstream doesn't provide usage, completion_tokens is 0
+	common.SetContextKey(c, constant.ContextKeyZeroOutputReason, service.ZeroOutputAudioOnly)
+	common.SetContextKey(c, constant.ContextKeyZeroOutputHasText, false)
+
 	return nil, usage
 }

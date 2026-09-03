@@ -3,8 +3,8 @@ Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
+published by the Free Software Foundation, either version 3, or
+(at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import type {
+  ErrorAnalysisStats,
   FlowQuotaDataItem,
   QuotaDataItem,
   UptimeGroupResult,
@@ -32,8 +33,6 @@ import type {
 // Quota & Usage Data
 // ----------------------------------------------------------------------------
 
-// Get user quota data within a time range
-// Admin users get all users' data by default.
 export async function getUserQuotaDates(
   params: {
     start_timestamp: number
@@ -50,10 +49,6 @@ export async function getUserQuotaDates(
   )
   return res.data
 }
-
-// ----------------------------------------------------------------------------
-// System Monitoring
-// ----------------------------------------------------------------------------
 
 export async function getUserQuotaDataByUsers(params: {
   start_timestamp: number
@@ -84,10 +79,31 @@ export async function getFlowQuotaDates(
   return res.data
 }
 
-// Get uptime monitoring status for all services
 export async function getUptimeStatus() {
   const res = await api.get<{ success: boolean; data: UptimeGroupResult[] }>(
     '/api/uptime/status'
+  )
+  return res.data
+}
+
+// ----------------------------------------------------------------------------
+// Error Analysis
+// ----------------------------------------------------------------------------
+export async function getErrorLogStats(
+  params: {
+    start_timestamp: number
+    end_timestamp: number
+    granularity?: string
+    username?: string
+    model_name?: string
+    channel?: number
+  },
+  isAdmin = false
+) {
+  const endpoint = isAdmin ? '/api/data/error' : '/api/data/error/self'
+  const res = await api.get<{ success: boolean; data: ErrorAnalysisStats }>(
+    endpoint,
+    { params }
   )
   return res.data
 }
