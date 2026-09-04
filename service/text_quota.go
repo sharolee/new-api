@@ -543,6 +543,28 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		if upstreamChunkSample != "" {
 			other["upstream_chunk_sample"] = upstreamChunkSample
 		}
+		// When upstream returned 200 but stream body contains an error (e.g. 503
+		// service_unavailable), the relay treats it as success with zero output.
+		// Record an error log (type=5) so the dashboard error analysis can surface
+		// these cases, without affecting the consume log or billing above.
+		if upstreamChunkSample != "" && constant.ErrorLogEnabled {
+			errOther := make(map[string]interface{})
+			if ctx.Request != nil && ctx.Request.URL != nil {
+				errOther["request_path"] = ctx.Request.URL.Path
+			}
+			errOther["upstream_status_code"] = upstreamStatusCode
+			errOther["upstream_chunk_sample"] = upstreamChunkSample
+			errOther["zero_output"] = true
+			errOther["channel_id"] = relayInfo.ChannelId
+			errOther["channel_name"] = ctx.GetString("channel_name")
+			errOther["channel_type"] = ctx.GetInt("channel_type")
+			errOther["admin_info"] = map[string]interface{}{
+				"use_channel": ctx.GetStringSlice("use_channel"),
+			}
+			errorContent := fmt.Sprintf("零输出: 上游响应码 %d, 响应样本: %s", upstreamStatusCode, upstreamChunkSample)
+			model.RecordErrorLog(ctx, relayInfo.UserId, relayInfo.ChannelId, logModel, summary.TokenName,
+				errorContent, relayInfo.TokenId, int(summary.UseTimeSeconds), relayInfo.IsStream, relayInfo.UsingGroup, errOther)
+		}
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)

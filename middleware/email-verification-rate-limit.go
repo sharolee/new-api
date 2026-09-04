@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,6 +37,10 @@ func redisEmailVerificationRateLimiter(c *gin.Context) {
 		waitSeconds = ttlSeconds
 	}
 
+	requestPath := c.Request.URL.Path
+	model.RecordMiddlewareErrorLog(c, 0, "", http.StatusTooManyRequests,
+		fmt.Sprintf("发送过于频繁，请等待 %d 秒后再试", waitSeconds), "rate_limit_exceeded", requestPath)
+
 	c.JSON(http.StatusTooManyRequests, gin.H{
 		"success": false,
 		"message": fmt.Sprintf("发送过于频繁，请等待 %d 秒后再试", waitSeconds),
@@ -47,6 +52,9 @@ func memoryEmailVerificationRateLimiter(c *gin.Context) {
 	key := EmailVerificationRateLimitMark + ":" + c.ClientIP()
 
 	if !inMemoryRateLimiter.Request(key, EmailVerificationMaxRequests, EmailVerificationDuration) {
+		requestPath := c.Request.URL.Path
+		model.RecordMiddlewareErrorLog(c, 0, "", http.StatusTooManyRequests,
+			"发送过于频繁，请稍后再试", "rate_limit_exceeded", requestPath)
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"success": false,
 			"message": "发送过于频繁，请稍后再试",

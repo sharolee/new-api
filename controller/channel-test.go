@@ -859,6 +859,11 @@ func TestChannel(c *gin.Context) {
 	}
 	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
 	if result.localErr != nil {
+		// Record error log for manual channel test failures (e.g. 429/403/503)
+		// so they appear in the dashboard error analysis.
+		if result.newAPIError != nil && constant.ErrorLogEnabled && types.IsRecordErrorLog(result.newAPIError) {
+			recordChannelTestErrorLog(c, channel, result.newAPIError)
+		}
 		resp := gin.H{
 			"success": false,
 			"message": result.localErr.Error(),
@@ -875,6 +880,10 @@ func TestChannel(c *gin.Context) {
 	go channel.UpdateResponseTime(milliseconds)
 	consumedTime := float64(milliseconds) / 1000.0
 	if result.newAPIError != nil {
+		// Record error log for manual channel test failures (e.g. bad response body)
+		if constant.ErrorLogEnabled && types.IsRecordErrorLog(result.newAPIError) {
+			recordChannelTestErrorLog(c, channel, result.newAPIError)
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success":    false,
 			"message":    result.newAPIError.Error(),
@@ -898,6 +907,31 @@ type channelTestSummary struct {
 	Failed    int `json:"failed"`
 	Disabled  int `json:"disabled"`
 	Enabled   int `json:"enabled"`
+}
+
+// recordChannelTestErrorLog writes an error log (type=5) for channel test errors
+// that don't trigger channel banning (e.g. 429 rate limit), so they appear in
+// the dashboard error analysis.
+func recordChannelTestErrorLog(c *gin.Context, channel *model.Channel, err *types.NewAPIError) {
+	if c == nil || err == nil {
+		return
+	}
+	other := make(map[string]interface{})
+	if c.Request != nil && c.Request.URL != nil {
+		other["request_path"] = c.Request.URL.Path
+	}
+	other["error_type"] = err.GetErrorType()
+	other["error_code"] = err.GetErrorCode()
+	other["status_code"] = err.StatusCode
+	other["channel_id"] = channel.Id
+	other["channel_name"] = channel.Name
+	other["channel_type"] = channel.Type
+	other["test_error"] = true
+	other["admin_info"] = map[string]interface{}{
+		"use_channel": c.GetStringSlice("use_channel"),
+	}
+	model.RecordErrorLog(c, c.GetInt("id"), channel.Id, c.GetString("original_model"), c.GetString("token_name"),
+		err.MaskSensitiveErrorWithStatusCode(), c.GetInt("token_id"), 0, false, c.GetString("group"), other)
 }
 
 // performChannelTests runs the channel test loop synchronously, honoring ctx
@@ -959,6 +993,10 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
 			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 			summary.Disabled++
+		} else if newAPIError != nil && constant.ErrorLogEnabled && types.IsRecordErrorLog(newAPIError) {
+			// Record error log for channel test errors that don't trigger banning
+			// (e.g. 429 rate limit) so they appear in the dashboard error analysis.
+			recordChannelTestErrorLog(result.context, channel, newAPIError)
 		}
 
 		// enable channel

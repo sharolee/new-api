@@ -295,58 +295,84 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		key = parts[0]
 
 		token, err := model.GetTokenByKey(key, false)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(http.StatusUnauthorized, gin.H{
-					"success": false,
-					"message": common.TranslateMessage(c, i18n.MsgTokenInvalid),
-				})
-			} else {
-				common.SysLog("TokenAuthReadOnly GetTokenByKey database error: " + err.Error())
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
-				})
-			}
-			c.Abort()
-			return
-		}
-
-		// TokenAuthReadOnly must keep allowing other token states to query read-only
-		// data, such as token usage logs; only explicitly disabled tokens are denied.
-		if token.Status == common.TokenStatusDisabled {
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			requestPath := c.Request.URL.Path
+			model.RecordMiddlewareErrorLog(c, 0, "", http.StatusUnauthorized,
+				common.TranslateMessage(c, i18n.MsgTokenInvalid), "invalid_token", requestPath)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
-				"message": common.TranslateMessage(c, i18n.MsgTokenStatusUnavailable),
+				"message": common.TranslateMessage(c, i18n.MsgTokenInvalid),
 			})
-			c.Abort()
-			return
-		}
-
-		userCache, err := model.GetUserCache(token.UserId)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("TokenAuthReadOnly GetUserCache error for user %d: %v", token.UserId, err))
+		} else {
+			common.SysLog("TokenAuthReadOnly GetTokenByKey database error: " + err.Error())
+			requestPath := c.Request.URL.Path
+			model.RecordMiddlewareErrorLog(c, 0, "", http.StatusInternalServerError,
+				common.TranslateMessage(c, i18n.MsgDatabaseError), "database_error", requestPath)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
 				"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
 			})
-			c.Abort()
-			return
 		}
-		if userCache.Status != common.UserStatusEnabled {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": common.TranslateMessage(c, i18n.MsgAuthUserBanned),
-			})
-			c.Abort()
-			return
-		}
+		c.Abort()
+		return
+	}
+
+	// TokenAuthReadOnly must keep allowing other token states to query read-only
+	// data, such as token usage logs; only explicitly disabled tokens are denied.
+	if token.Status == common.TokenStatusDisabled {
+		requestPath := c.Request.URL.Path
+		model.RecordMiddlewareErrorLog(c, token.UserId, token.Name, http.StatusUnauthorized,
+			common.TranslateMessage(c, i18n.MsgTokenStatusUnavailable), "token_disabled", requestPath)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgTokenStatusUnavailable),
+		})
+		c.Abort()
+		return
+	}
+
+		userCache, err := model.GetUserCache(token.UserId)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("TokenAuthReadOnly GetUserCache error for user %d: %v", token.UserId, err))
+		requestPath := c.Request.URL.Path
+		model.RecordMiddlewareErrorLog(c, token.UserId, token.Name, http.StatusInternalServerError,
+			common.TranslateMessage(c, i18n.MsgDatabaseError), "database_error", requestPath)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
+		})
+		c.Abort()
+		return
+	}
+	if userCache.Status != common.UserStatusEnabled {
+		requestPath := c.Request.URL.Path
+		model.RecordMiddlewareErrorLog(c, token.UserId, token.Name, http.StatusForbidden,
+			common.TranslateMessage(c, i18n.MsgAuthUserBanned), "user_banned", requestPath)
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthUserBanned),
+		})
+		c.Abort()
+		return
+	}
 
 		c.Set("id", token.UserId)
 		c.Set("token_id", token.Id)
 		c.Set("token_key", token.Key)
 		c.Next()
 	}
+}
+
+// safeKeyPrefix returns a safe prefix of the key for logging (max 10 chars)
+func safeKeyPrefix(key string) string {
+	if len(key) == 0 {
+		return "(empty)"
+	}
+	if len(key) <= 10 {
+		return key
+	}
+	return key[:10]
 }
 
 func TokenAuth() func(c *gin.Context) {
@@ -406,52 +432,79 @@ func TokenAuth() func(c *gin.Context) {
 			key = parts[0]
 		}
 		token, err := model.ValidateUserToken(key)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("TokenAuth: validation failed for key prefix: %s, error: %v", safeKeyPrefix(key), err))
+		tokenName := ""
+		userId := 0
 		if token != nil {
-			id := c.GetInt("id")
-			if id == 0 {
-				c.Set("id", token.UserId)
-			}
+			tokenName = token.Name
+			userId = token.UserId
 		}
-		if err != nil {
-			if errors.Is(err, model.ErrDatabase) {
-				common.SysLog("TokenAuth ValidateUserToken database error: " + err.Error())
-				abortWithOpenAiMessage(c, http.StatusInternalServerError,
-					common.TranslateMessage(c, i18n.MsgDatabaseError))
-			} else {
-				abortWithOpenAiMessage(c, http.StatusUnauthorized,
-					common.TranslateMessage(c, i18n.MsgTokenInvalid))
-			}
-			return
-		}
-
-		allowIps := token.GetIpLimits()
-		if len(allowIps) > 0 {
-			clientIp := c.ClientIP()
-			logger.LogDebug(c, "Token has IP restrictions, checking client IP %s", clientIp)
-			ip := net.ParseIP(clientIp)
-			if ip == nil {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "无法解析客户端 IP 地址")
-				return
-			}
-			if common.IsIpInCIDRList(ip, allowIps) == false {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "您的 IP 不在令牌允许访问的列表中", types.ErrorCodeAccessDenied)
-				return
-			}
-			logger.LogDebug(c, "Client IP %s passed the token IP restrictions check", clientIp)
-		}
-
-		userCache, err := model.GetUserCache(token.UserId)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("TokenAuth GetUserCache error for user %d: %v", token.UserId, err))
+		requestPath := c.Request.URL.Path
+		if errors.Is(err, model.ErrDatabase) {
+			common.SysLog("TokenAuth ValidateUserToken database error: " + err.Error())
+			model.RecordMiddlewareErrorLog(c, userId, tokenName, http.StatusInternalServerError,
+				common.TranslateMessage(c, i18n.MsgDatabaseError), "database_error", requestPath)
 			abortWithOpenAiMessage(c, http.StatusInternalServerError,
 				common.TranslateMessage(c, i18n.MsgDatabaseError))
+		} else {
+			common.SysLog(fmt.Sprintf("TokenAuth: recording middleware error log for userId=%d, tokenName=%s", userId, tokenName))
+			model.RecordMiddlewareErrorLog(c, userId, tokenName, http.StatusUnauthorized,
+				common.TranslateMessage(c, i18n.MsgTokenInvalid), "invalid_token", requestPath)
+			abortWithOpenAiMessage(c, http.StatusUnauthorized,
+				common.TranslateMessage(c, i18n.MsgTokenInvalid))
+		}
+		return
+	}
+	common.SysLog(fmt.Sprintf("TokenAuth: validation succeeded for userId=%d, tokenName=%s", token.UserId, token.Name))
+
+	if token != nil {
+		id := c.GetInt("id")
+		if id == 0 {
+			c.Set("id", token.UserId)
+		}
+	}
+
+	allowIps := token.GetIpLimits()
+	if len(allowIps) > 0 {
+		clientIp := c.ClientIP()
+		logger.LogDebug(c, "Token has IP restrictions, checking client IP %s", clientIp)
+		ip := net.ParseIP(clientIp)
+		if ip == nil {
+			requestPath := c.Request.URL.Path
+			model.RecordMiddlewareErrorLog(c, token.UserId, token.Name, http.StatusForbidden,
+				"无法解析客户端 IP 地址", "invalid_client_ip", requestPath)
+			abortWithOpenAiMessage(c, http.StatusForbidden, "无法解析客户端 IP 地址")
 			return
 		}
-		userEnabled := userCache.Status == common.UserStatusEnabled
-		if !userEnabled {
-			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
+		if common.IsIpInCIDRList(ip, allowIps) == false {
+			requestPath := c.Request.URL.Path
+			model.RecordMiddlewareErrorLog(c, token.UserId, token.Name, http.StatusForbidden,
+				"您的 IP 不在令牌允许访问的列表中", string(types.ErrorCodeAccessDenied), requestPath)
+			abortWithOpenAiMessage(c, http.StatusForbidden, "您的 IP 不在令牌允许访问的列表中", types.ErrorCodeAccessDenied)
 			return
 		}
+		logger.LogDebug(c, "Client IP %s passed the token IP restrictions check", clientIp)
+	}
+
+		userCache, err := model.GetUserCache(token.UserId)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("TokenAuth GetUserCache error for user %d: %v", token.UserId, err))
+		requestPath := c.Request.URL.Path
+		model.RecordMiddlewareErrorLog(c, token.UserId, token.Name, http.StatusInternalServerError,
+			common.TranslateMessage(c, i18n.MsgDatabaseError), "database_error", requestPath)
+		abortWithOpenAiMessage(c, http.StatusInternalServerError,
+			common.TranslateMessage(c, i18n.MsgDatabaseError))
+		return
+	}
+	userEnabled := userCache.Status == common.UserStatusEnabled
+	if !userEnabled {
+		requestPath := c.Request.URL.Path
+		model.RecordMiddlewareErrorLog(c, token.UserId, token.Name, http.StatusForbidden,
+			common.TranslateMessage(c, i18n.MsgAuthUserBanned), "user_banned", requestPath)
+		abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
+		return
+	}
 
 		userCache.WriteContext(c)
 

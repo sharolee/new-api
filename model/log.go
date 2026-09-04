@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
 
@@ -323,6 +324,68 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	err := createLog(log)
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
+	}
+}
+
+// RecordMiddlewareErrorLog records an error log (type=5) for middleware-level failures
+// (e.g., invalid token, rate limit, IP forbidden) that occur before channel selection.
+func RecordMiddlewareErrorLog(c *gin.Context, userId int, tokenName string, statusCode int, errorMessage string, errorCode string, requestPath string) {
+	if !constant.ErrorLogEnabled {
+		return
+	}
+	username := c.GetString("username")
+	requestId := c.GetString(common.RequestIdKey)
+	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+
+	other := make(map[string]interface{})
+	if requestPath != "" {
+		other["request_path"] = requestPath
+	}
+	other["status_code"] = statusCode
+	other["error_code"] = errorCode
+	other["middleware_error"] = true
+	other["admin_info"] = map[string]interface{}{
+		"use_channel": c.GetStringSlice("use_channel"),
+	}
+	otherStr := common.MapToJsonStr(other)
+
+	// 判断是否需要记录 IP
+	needRecordIp := false
+	if settingMap, err := GetUserSetting(userId, false); err == nil {
+		if settingMap.RecordIpLog {
+			needRecordIp = true
+		}
+	}
+
+	log := &Log{
+		UserId:            userId,
+		Username:          username,
+		CreatedAt:         common.GetTimestamp(),
+		Type:              LogTypeError,
+		Content:           errorMessage,
+		PromptTokens:      0,
+		CompletionTokens:  0,
+		TokenName:         tokenName,
+		ModelName:         "",
+		Quota:             0,
+		ChannelId:         0,
+		TokenId:           c.GetInt("token_id"),
+		UseTime:           0,
+		IsStream:          false,
+		Group:             c.GetString("group"),
+		Ip: func() string {
+			if needRecordIp {
+				return c.ClientIP()
+			}
+			return ""
+		}(),
+		RequestId:         requestId,
+		UpstreamRequestId: upstreamRequestId,
+		Other:             otherStr,
+	}
+	err := createLog(log)
+	if err != nil {
+		logger.LogError(c, "failed to record middleware error log: "+err.Error())
 	}
 }
 
