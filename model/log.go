@@ -847,6 +847,7 @@ func GetErrorLogStats(startTimestamp, endTimestamp int64, username, modelName, g
 	channelErrorMap := make(map[string]*ErrorLogStatsItem)
 	dateMap := make(map[string]*DateErrorStats)
 	for _, log := range logs {
+		stats.Total++
 		channelKey := fmt.Sprintf("%d", log.ChannelId)
 		var otherMap map[string]interface{}
 		if log.Other != "" { if m, err := common.StrToMap(log.Other); err == nil { otherMap = m } }
@@ -862,6 +863,9 @@ func GetErrorLogStats(startTimestamp, endTimestamp int64, username, modelName, g
 	stats.Detail = make([]ErrorLogStatsItem, 0, len(channelErrorMap))
 	for _, item := range channelErrorMap { stats.Detail = append(stats.Detail, *item) }
 	dateKeys := make([]string, 0, len(dateMap))
+	for key := range dateMap {
+		dateKeys = append(dateKeys, key)
+	}
 	sort.Strings(dateKeys)
 	for _, key := range dateKeys { stats.ByDate = append(stats.ByDate, *dateMap[key]) }
 	return stats, nil
