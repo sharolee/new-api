@@ -569,6 +569,18 @@ export const STATIC_I18N_KEYS = [
   'The model that was requested',
   'The upstream channel that served the requests',
 
+  // Error analysis categories
+  'Rate limit',
+  'Quota',
+  'Unavailable',
+  'Not found',
+  'Timeout',
+  'Zero output',
+  'Upstream',
+  'Authentication',
+  'Invalid request',
+  'Unknown',
+
   // Misc
   'Cancel',
   'Status',

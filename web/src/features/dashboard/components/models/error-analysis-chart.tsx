@@ -17,20 +17,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { VChart } from '@visactor/react-vchart'
-import { AlertTriangle, AlertOctagon, BarChart3, GitBranch, LineChart } from 'lucide-react'
+import { AlertTriangle, AlertOctagon, BarChart3, LineChart } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge } from '@/components/ui/icon-badge'
 import { useTheme } from '@/context/theme-provider'
-import { DEFAULT_TIME_GRANULARITY, getDashboardChartColors } from '@/features/dashboard/constants'
-import type { ErrorAnalysisChartTab } from '@/features/dashboard/types'
+import { DEFAULT_TIME_GRANULARITY } from '@/features/dashboard/constants'
+import { buildErrorChartSpecs } from '@/features/dashboard/lib/error-charts'
+import type {
+  ErrorAnalysisChartTab,
+  ErrorAnalysisStats,
+} from '@/features/dashboard/types'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { VCHART_OPTION } from '@/lib/vchart'
 
-const CHART_SPEC_KEYS: Record<ErrorAnalysisChartTab, string> = {
+const CHART_SPEC_KEYS: Record<
+  ErrorAnalysisChartTab,
+  'spec_channel_bar' | 'spec_error_bar' | 'spec_trend_line'
+> = {
   channel: 'spec_channel_bar',
   error: 'spec_error_bar',
   trend: 'spec_trend_line',
@@ -56,7 +63,7 @@ export function ErrorAnalysisChart(props: ErrorAnalysisChartProps) {
   const [activeTab, setActiveTab] = useState<ErrorAnalysisChartTab>(
     props.defaultChartTab ?? 'trend'
   )
-  const [stats, setStats] = useState<any | null>(null)
+  const [stats, setStats] = useState<ErrorAnalysisStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const timeGranularity = props.filters?.time_granularity ?? DEFAULT_TIME_GRANULARITY
@@ -92,7 +99,7 @@ export function ErrorAnalysisChart(props: ErrorAnalysisChartProps) {
         },
         props.isAdmin || false
       )
-      setStats(result?.data || result)
+      setStats(result.data ?? null)
     } catch {
       setError(true)
       setStats(null)
@@ -106,9 +113,15 @@ export function ErrorAnalysisChart(props: ErrorAnalysisChartProps) {
   }, [fetchErrorStats])
 
   const chartSpecs = useMemo(() => {
-    if (!stats) return { spec_channel_bar: null, spec_error_bar: null, spec_trend_line: null }
-    return buildErrorChartSpecs(stats, t, resolvedTheme, themeRadius)
-  }, [stats, t, resolvedTheme, themeRadius])
+    if (!stats) {
+      return {
+        spec_channel_bar: null,
+        spec_error_bar: null,
+        spec_trend_line: null,
+      }
+    }
+    return buildErrorChartSpecs(stats, t, timeGranularity, themeRadius)
+  }, [stats, t, timeGranularity, themeRadius])
 
   const chartKey = [
     activeTab,
@@ -175,164 +188,4 @@ export function ErrorAnalysisChart(props: ErrorAnalysisChartProps) {
       </div>
     </div>
   )
-}
-
-// ============================================================================
-// Chart spec builders
-// ============================================================================
-
-function buildErrorChartSpecs(
-  stats: any,
-  t: (k: string) => string,
-  theme: string,
-  _radius: number
-): Record<string, any> {
-  const isDark = theme === 'dark'
-  const baseColor = isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.7)'
-  const mutedColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)'
-  const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
-
-  const channelData = Object.entries(stats.by_channel ?? {})
-    .map(([channelId, count]: [string, number]) => ({
-      name:
-        stats.detail?.find((d: any) => d.channel_id === Number(channelId))?.channel_name ||
-        `#${channelId}`,
-      value: count,
-    }))
-    .sort((a: any, b: any) => b.value - a.value)
-    .slice(0, 20)
-
-  const errorData = Object.entries(stats.by_error ?? {})
-    .map(([code, count]: [string, number]) => ({ name: code, value: count }))
-    .sort((a: any, b: any) => b.value - a.value)
-    .slice(0, 20)
-
-  const dateData = (stats.by_date ?? [])
-    .map((d: any) => {
-      const date = new Date(Number(d.date) * 1000)
-      const dateStr = date.toISOString().slice(5, 10).replace('T', ' ')
-      const hourStr = date.toISOString().slice(11, 16)
-      return { date: dateStr + ' ' + hourStr, total: d.total }
-    })
-    .slice(-30)
-
-  return {
-    spec_channel_bar: buildBarSpec(channelData, t, baseColor, mutedColor, gridColor, 'Channel'),
-    spec_error_bar: buildBarSpec(errorData, t, baseColor, mutedColor, gridColor, 'Error Type'),
-    spec_trend_line: buildTrendSpec(dateData, t, baseColor, mutedColor, gridColor),
-  }
-}
-
-function buildBarSpec(
-  data: any[],
-  t: (k: string) => string,
-  baseColor: string,
-  mutedColor: string,
-  gridColor: string,
-  axisLabel: string
-): any {
-  const colors = getDashboardChartColors(Math.max(1, data.length))
-  return {
-    type: 'bar',
-    name: t('Error Distribution'),
-    data: { id: 'errorData' },
-    dataField: 'value',
-    categoryField: 'name',
-    encode: { x: 'name', y: 'value' },
-    color: 'category',
-    label: {
-      visible: true,
-      position: 'top',
-      color: baseColor,
-      fontSize: 10,
-    },
-    tooltip: {
-      content: (datum: any) => `${datum.name}: ${datum.value}`,
-    },
-    seriesLabel: { visible: false },
-    axis: {
-      x: {
-        type: 'band',
-        label: { color: baseColor, fontSize: 9, rotate: 45, align: 'center' },
-        grid: { visible: false },
-        title: { text: axisLabel, color: mutedColor, fontSize: 10 },
-      },
-      y: {
-        type: 'value',
-        label: { color: baseColor, fontSize: 10 },
-        grid: { line: { stroke: gridColor } },
-      },
-    },
-    color: {
-      domain: colors.slice(0, Math.max(1, data.length)),
-    },
-    legend: { visible: false },
-    padding: 4,
-    width: '100%',
-    height: '100%',
-    data: {
-      id: 'errorData',
-      values: data,
-    },
-    animation: false,
-  }
-}
-
-function buildTrendSpec(
-  data: any[],
-  t: (k: string) => string,
-  baseColor: string,
-  mutedColor: string,
-  gridColor: string
-): any {
-  const chartColors = getDashboardChartColors(3)
-  const topErrors = data.length > 0
-    ? [...new Set(data.map((d: any) => d.error_codes?.join(', ')))].slice(0, 3)
-    : []
-
-  return {
-    type: 'line',
-    name: t('Error Trend'),
-    data: { id: 'errorTrendData' },
-    dataField: 'total',
-    categoryField: 'date',
-    encode: { x: 'date', y: 'total' },
-    smooth: true,
-    markPoint: {
-      type: 'max',
-      shape: 'circle',
-      symbolSize: 8,
-      label: { visible: false },
-    },
-    markArea: {
-      type: 'rect',
-    },
-    tooltip: {
-      content: (datum: any) => `${datum.date}: ${datum.total} errors`,
-    },
-    seriesLabel: { visible: false },
-    axis: {
-      x: {
-        type: 'band',
-        label: { color: baseColor, fontSize: 9, rotate: 30 },
-        grid: { visible: false },
-      },
-      y: {
-        type: 'value',
-        label: { color: baseColor, fontSize: 10 },
-        grid: { line: { stroke: gridColor } },
-      },
-    },
-    color: chartColors[0] || (baseColor === 'rgba(255,255,255,0.8)' ? '#4a90d9' : '#3b82f6'),
-    legend: { visible: false },
-    padding: 4,
-    width: '100%',
-    height: '100%',
-    data: {
-      id: 'errorTrendData',
-      values: data,
-    },
-    animation: false,
-    _topErrors: topErrors,
-  }
 }

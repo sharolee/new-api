@@ -287,6 +287,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+	common.AttachErrorLogCategory(other)
 	otherStr := common.MapToJsonStr(other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -347,6 +348,7 @@ func RecordMiddlewareErrorLog(c *gin.Context, userId int, tokenName string, stat
 	other["admin_info"] = map[string]interface{}{
 		"use_channel": c.GetStringSlice("use_channel"),
 	}
+	common.AttachErrorLogCategory(other)
 	otherStr := common.MapToJsonStr(other)
 
 	// 判断是否需要记录 IP
@@ -851,8 +853,7 @@ func GetErrorLogStats(startTimestamp, endTimestamp int64, username, modelName, g
 		channelKey := fmt.Sprintf("%d", log.ChannelId)
 		var otherMap map[string]interface{}
 		if log.Other != "" { if m, err := common.StrToMap(log.Other); err == nil { otherMap = m } }
-		errorCode := "unknown"
-		if otherMap != nil { if code, ok := otherMap["error_code"].(string); ok && code != "" { errorCode = code } }
+		errorCode := common.CategorizeErrorLogFromOther(otherMap)
 		stats.ByChannel[channelKey]++
 		stats.ByError[errorCode]++
 		ceKey := channelKey + "|" + errorCode

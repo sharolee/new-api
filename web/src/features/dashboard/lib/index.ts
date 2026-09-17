@@ -33,6 +33,7 @@ export {
   getDefaultPingStatus,
 } from './api-info'
 export { processChartData, processUserChartData } from './charts'
+export { buildErrorChartSpecs } from './error-charts'
 export {
   buildDashboardFlowData,
   buildFlowSankeySpec,

@@ -26,6 +26,8 @@ plans
 .opencode/
 .omo/
 openspec/
+.dsh_probe/
+.serena/
 
 electron/node_modules
 electron/dist
