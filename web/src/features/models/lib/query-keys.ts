@@ -88,3 +88,11 @@ export const modelCategoriesQueryKeys = {
   detail: (id: number) =>
     [...modelCategoriesQueryKeys.all, 'detail', id] as const,
 }
+
+/**
+ * React Query cache keys for the available-model channel filter options
+ */
+export const availableChannelsQueryKeys = {
+  all: ['available-channels'] as const,
+  list: () => [...availableChannelsQueryKeys.all, 'list'] as const,
+}

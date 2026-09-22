@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
-import { ProviderBadge } from '@/components/provider-badge'
 import { TableId } from '@/components/table-id'
 import { GroupBadge } from '@/components/group-badge'
 import { getLobeIcon } from '@/lib/lobe-icon'
@@ -95,20 +94,54 @@ export function useAvailableModelsColumns(opts?: {
       header: t('Channel'),
       meta: { mobileHidden: true },
       cell: ({ row }) => {
+        const mappings = row.original.channel_mappings ?? []
         const names = row.original.channel_names ?? []
+
+        // Fallback: when the backend does not provide per-channel mappings,
+        // render plain channel names one per line.
+        if (mappings.length === 0) {
+          if (names.length === 0) {
+            return (
+              <span className='text-xs text-muted-foreground'>{t('None')}</span>
+            )
+          }
+          return (
+            <div className='flex max-w-full flex-col gap-0.5'>
+              {names.slice(0, 5).map((name) => (
+                <span
+                  key={name}
+                  className='truncate font-mono text-xs leading-5'
+                >
+                  {name}
+                </span>
+              ))}
+              {names.length > 5 && (
+                <span className='shrink-0 text-xs text-muted-foreground'>
+                  +{names.length - 5}
+                </span>
+              )}
+            </div>
+          )
+        }
+
+        // One line per channel: "channelName" + " : mappedModel" when the
+        // channel's model_mapping remaps this model to an upstream name.
         return (
-          <div className='flex max-w-full flex-wrap gap-1'>
-            {names.slice(0, 5).map((name) => (
-              <ProviderBadge
-                key={name}
-                label={name}
-                size='sm'
-                variant='neutral'
-              />
+          <div className='flex max-w-full flex-col gap-0.5'>
+            {mappings.slice(0, 5).map((m) => (
+              <span
+                key={m.channel_id}
+                className='truncate font-mono text-xs leading-5'
+              >
+                {m.name}
+                {m.mapped_model ? (
+                  <span className='text-muted-foreground'>: {m.mapped_model}</span>
+                ) : null}
+              </span>
             ))}
-            {names.length > 5 && (
+            {mappings.length > 5 && (
               <span className='shrink-0 text-xs text-muted-foreground'>
-                +{names.length - 5}
+                +{mappings.length - 5}
               </span>
             )}
           </div>

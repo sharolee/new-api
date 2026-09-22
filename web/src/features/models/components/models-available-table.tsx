@@ -27,9 +27,9 @@ import { Button } from '@/components/ui/button'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 
-import { getAvailableModels, getCategories } from '../api'
+import { getAvailableModels, getCategories, getAvailableChannels } from '../api'
 import { DEFAULT_PAGE_SIZE } from '../constants'
-import { availableModelsQueryKeys, modelCategoriesQueryKeys } from '../lib'
+import { availableModelsQueryKeys, modelCategoriesQueryKeys, availableChannelsQueryKeys } from '../lib'
 import { useAvailableModelsColumns } from './available-model-columns'
 import { ModelCategoriesSettingsDialog } from './dialogs/model-categories-settings-dialog'
 
@@ -56,24 +56,38 @@ export function ModelsAvailableTable() {
     },
     globalFilter: { enabled: true, key: 'filter' },
     columnFilters: [
-      { columnId: 'group', searchKey: 'group', type: 'array' },
-      { columnId: 'category', searchKey: 'category_id', type: 'array' },
+      { columnId: 'enabled_groups', searchKey: 'group', type: 'array' },
+      { columnId: 'categories', searchKey: 'category_id', type: 'array' },
+      { columnId: 'channel_names', searchKey: 'channel_id', type: 'array' },
     ],
   })
 
   const groupFilter =
-    (columnFilters.find((f) => f.id === 'group')?.value as string[]) || []
+    (columnFilters.find((f) => f.id === 'enabled_groups')?.value as string[]) ||
+    []
   const categoryFilter =
-    (columnFilters.find((f) => f.id === 'category')?.value as string[]) || []
+    (columnFilters.find((f) => f.id === 'categories')?.value as string[]) || []
+  const channelFilter =
+    (columnFilters.find((f) => f.id === 'channel_names')?.value as string[]) ||
+    []
 
   const { data: categoriesData } = useQuery({
     queryKey: modelCategoriesQueryKeys.list(),
     queryFn: () => getCategories(),
   })
 
+  const { data: channelsData } = useQuery({
+    queryKey: availableChannelsQueryKeys.list(),
+    queryFn: () => getAvailableChannels(),
+  })
+
   const categories = useMemo(
     () => categoriesData?.data || [],
     [categoriesData?.data]
+  )
+  const channels = useMemo(
+    () => channelsData?.data || [],
+    [channelsData?.data]
   )
 
   const categoryOptions = useMemo(() => {
@@ -85,6 +99,13 @@ export function ModelsAvailableTable() {
       })),
     ]
   }, [categories, t])
+
+  const channelOptions = useMemo(() => {
+    return [
+      { label: t('All channels'), value: 'all' },
+      ...channels.map((ch) => ({ label: ch.name, value: String(ch.id) })),
+    ]
+  }, [channels, t])
 
   const queryParams: Record<string, string | number> = {
     p: pagination.pageIndex + 1,
@@ -99,6 +120,9 @@ export function ModelsAvailableTable() {
   }
   if (categoryFilter.length > 0 && categoryFilter[0] !== 'all') {
     queryParams.category_id = categoryFilter[0]
+  }
+  if (channelFilter.length > 0 && channelFilter[0] !== 'all') {
+    queryParams.channel_id = channelFilter[0]
   }
 
   const { data, isLoading, isFetching } = useQuery({
@@ -142,15 +166,21 @@ export function ModelsAvailableTable() {
           searchPlaceholder: t('Filter by model name...'),
           filters: [
             {
-              columnId: 'group',
+              columnId: 'enabled_groups',
               title: t('Group'),
               options: [{ label: t('All groups'), value: 'all' }],
               singleSelect: true,
             },
             {
-              columnId: 'category',
+              columnId: 'categories',
               title: t('Category'),
               options: categoryOptions,
+              singleSelect: true,
+            },
+            {
+              columnId: 'channel_names',
+              title: t('Channel'),
+              options: channelOptions,
               singleSelect: true,
             },
           ],

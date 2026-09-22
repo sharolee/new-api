@@ -117,27 +117,37 @@ type CategoryModelDTO struct {
 	Description string `json:"description"`
 }
 
+// ChannelMappingDTO represents one channel-to-mapped-model relationship for a
+// single available model entry.
+type ChannelMappingDTO struct {
+	ChannelID   int    `json:"channel_id"`
+	Name        string `json:"name"`
+	MappedModel string `json:"mapped_model"`
+}
+
 // AvailableModelDTO represents one model available across all channels (the
 // /playground view), with channel/group/category metadata.
 type AvailableModelDTO struct {
-	ModelName      string              `json:"model_name"`
-	ChannelCount   int                 `json:"channel_count"`
-	ChannelNames   []string            `json:"channel_names"`
-	ChannelTypes   map[int]int         `json:"channel_types"`
-	EnabledGroups  []string            `json:"enabled_groups"`
-	Categories     []CategoryModelDTO  `json:"categories"`
-	HasModelMeta   bool                `json:"has_model_meta"`
-	ModelMetaID    *int                `json:"model_meta_id,omitempty"`
-	ModelRatio     float64             `json:"model_ratio"`
-	ModelPrice     float64             `json:"model_price"`
-	QuotaType      int                 `json:"quota_type"`
-	Tags           []string            `json:"tags"`
+	ModelName       string               `json:"model_name"`
+	ChannelCount    int                  `json:"channel_count"`
+	ChannelNames    []string             `json:"channel_names"`
+	ChannelTypes    map[int]int          `json:"channel_types"`
+	EnabledGroups   []string             `json:"enabled_groups"`
+	Categories      []CategoryModelDTO   `json:"categories"`
+	ChannelMappings []ChannelMappingDTO  `json:"channel_mappings"`
+	HasModelMeta    bool                 `json:"has_model_meta"`
+	ModelMetaID     *int                 `json:"model_meta_id,omitempty"`
+	ModelRatio      float64              `json:"model_ratio"`
+	ModelPrice      float64              `json:"model_price"`
+	QuotaType       int                  `json:"quota_type"`
+	Tags            []string             `json:"tags"`
 }
 
 // AvailableModelsFilter holds optional filters for GetAvailableModels.
 type AvailableModelsFilter struct {
 	Keyword       string
 	ChannelType   *int
+	ChannelID     *int
 	Group         string
 	CategoryID    *int
 	Page          int
@@ -179,6 +189,11 @@ func GetAvailableModels(filter *AvailableModelsFilter) ([]AvailableModelDTO, int
 			"channel_id IN (SELECT id FROM channels WHERE type = ?)",
 			chType,
 		)
+	}
+
+	if filter.ChannelID != nil {
+		// Filter to models that have at least one ability on this specific channel
+		query = query.Where("channel_id = ?", *filter.ChannelID)
 	}
 
 	if filter.CategoryID != nil {
@@ -252,6 +267,20 @@ func GetAvailableModels(filter *AvailableModelsFilter) ([]AvailableModelDTO, int
 	chMap := make(map[int]Channel)
 	for _, ch := range channels {
 		chMap[ch.Id] = ch
+	}
+
+	// Parse each channel's model_mapping once: channelID -> (model -> upstream model)
+	channelMappings := make(map[int]map[string]string)
+	for _, ch := range channels {
+		raw := ch.GetModelMapping()
+		if raw == "" || raw == "{}" {
+			continue
+		}
+		m := make(map[string]string)
+		if err := common.Unmarshal([]byte(raw), &m); err != nil {
+			continue
+		}
+		channelMappings[ch.Id] = m
 	}
 
 	// Group by model name
@@ -371,6 +400,32 @@ func GetAvailableModels(filter *AvailableModelsFilter) ([]AvailableModelDTO, int
 			sort.Strings(chNames)
 			dto.ChannelNames = chNames
 			dto.ChannelTypes = info.types
+
+			// Channel mappings: one entry per channel (sorted by id), including
+			// the mapped upstream model name when the channel's model_mapping
+			// remaps this model.
+			chIDs := make([]int, 0, len(info.channelIDs))
+			for id := range info.channelIDs {
+				chIDs = append(chIDs, id)
+			}
+			sort.Ints(chIDs)
+			dto.ChannelMappings = make([]ChannelMappingDTO, 0, len(chIDs))
+			for _, id := range chIDs {
+				ch := chMap[id]
+				chName := ch.Name
+				if chName == "" {
+					chName = "Channel " + strconv.Itoa(id)
+				}
+				mapped := ""
+				if m, ok := channelMappings[id]; ok {
+					mapped = m[modelName]
+				}
+				dto.ChannelMappings = append(dto.ChannelMappings, ChannelMappingDTO{
+					ChannelID:   id,
+					Name:        chName,
+					MappedModel: mapped,
+				})
+			}
 		}
 
 		if groups := modelGroups[modelName]; len(groups) > 0 {
@@ -472,4 +527,48 @@ func EnsureDefaultModelCategories() {
 		return
 	}
 	common.SysLog("seeded default model categories")
+}
+
+// AvailableChannelDTO is a lightweight channel descriptor used by the channel
+// filter dropdown on the available models page.
+type AvailableChannelDTO struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+	Type int    `json:"type"`
+}
+
+// GetAvailableChannels returns the channels that currently have at least one
+// enabled ability, ordered by name case-insensitively. It is used to populate
+// the channel filter on the available models page.
+func GetAvailableChannels() ([]AvailableChannelDTO, error) {
+	var chIDs []int
+	if err := DB.Table("abilities").
+		Where("enabled = ?", true).
+		Distinct().
+		Pluck("channel_id", &chIDs).Error; err != nil {
+		return nil, err
+	}
+	if len(chIDs) == 0 {
+		return []AvailableChannelDTO{}, nil
+	}
+
+	var channels []Channel
+	if err := DB.Select("id, name, type").
+		Where("id IN ?", chIDs).
+		Find(&channels).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]AvailableChannelDTO, 0, len(channels))
+	for _, ch := range channels {
+		name := ch.Name
+		if name == "" {
+			name = "Channel " + strconv.Itoa(ch.Id)
+		}
+		result = append(result, AvailableChannelDTO{Id: ch.Id, Name: name, Type: ch.Type})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
+	})
+	return result, nil
 }

@@ -513,6 +513,7 @@ export const STATIC_I18N_KEYS = [
   'Has Meta',
   'Uncategorized',
   'All channel types',
+  'All channels',
   'Filter by model name...',
   'Pricing',
   'Tags',

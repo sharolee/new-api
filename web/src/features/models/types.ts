@@ -305,6 +305,15 @@ export type SyncSource = 'official' | 'config'
  * Model tab type
  */
 /**
+ * Brief channel-to-mapped-model info for the channel column on available models.
+ */
+export interface ChannelMapping {
+  channel_id: number
+  name: string
+  mapped_model: string // empty when this channel has no mapping for this model
+}
+
+/**
  * Available model entry (from abilities table, what /playground shows)
  */
 export interface AvailableModel {
@@ -314,6 +323,7 @@ export interface AvailableModel {
   channel_types: Record<string, number> // channel_type_id -> count
   enabled_groups: string[]
   categories: ModelCategoryBrief[]
+  channel_mappings?: ChannelMapping[]
   has_model_meta: boolean
   model_meta_id?: number
   model_ratio?: number
@@ -346,11 +356,21 @@ export interface ModelCategory extends ModelCategoryBrief {
 }
 
 /**
+ * Brief channel descriptor used by the available models filter dropdown.
+ */
+export interface AvailableChannelBrief {
+  id: number
+  name: string
+  type: number
+}
+
+/**
  * Get available models parameters
  */
 export interface GetAvailableModelsParams {
   keyword?: string
   ch_type?: string
+  channel_id?: string
   group?: string
   category_id?: string
   p?: number
@@ -368,6 +388,14 @@ export interface GetAvailableModelsResponse {
     page: number
     page_size: number
   }
+}
+
+/**
+ * Get available channels response (for the channel filter dropdown)
+ */
+export interface GetAvailableChannelsResponse {
+  success: boolean
+  data?: AvailableChannelBrief[]
 }
 
 /**

@@ -17,6 +17,7 @@ import (
 func GetAvailableModelsMeta(c *gin.Context) {
 	keyword := c.Query("keyword")
 	chTypeStr := c.Query("ch_type")
+	channelIDStr := c.Query("channel_id")
 	group := c.Query("group")
 	catStr := c.Query("category_id")
 	search := c.Query("search_enabled")
@@ -30,6 +31,12 @@ func GetAvailableModelsMeta(c *gin.Context) {
 	if chTypeStr != "" {
 		if chType, err := strconv.Atoi(chTypeStr); err == nil {
 			filter.ChannelType = &chType
+		}
+	}
+
+	if channelIDStr != "" {
+		if channelID, err := strconv.Atoi(channelIDStr); err == nil {
+			filter.ChannelID = &channelID
 		}
 	}
 
@@ -54,11 +61,22 @@ func GetAvailableModelsMeta(c *gin.Context) {
 	}
 
 	common.ApiSuccess(c, gin.H{
-		"items":  models,
-		"total":  total,
-		"page":   filter.Page,
+		"items":     models,
+		"total":     total,
+		"page":      filter.Page,
 		"page_size": filter.PageSize,
 	})
+}
+
+// GetAvailableChannelsMeta returns channels with at least one enabled ability,
+// used to populate the channel filter on the available models page.
+func GetAvailableChannelsMeta(c *gin.Context) {
+	channels, err := model.GetAvailableChannels()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, channels)
 }
 
 // GetAvailableModelMeta returns the metadata (vendor, description, etc.)

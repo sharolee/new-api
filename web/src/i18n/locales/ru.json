@@ -284,6 +284,7 @@
     "All API tokens": "Все API-ключи",
     "All categories": "Все категории",
     "All channel types": "Все типы каналов",
+    "All channels": "Все каналы",
     "All conditions must match before this tier is used.": "Все условия должны совпасть, прежде чем будет использован этот уровень.",
     "All edits are overwrite operations. Leave fields empty to keep current values unchanged.": "Все изменения являются операциями перезаписи. Оставьте поля пустыми, чтобы сохранить текущие значения без изменений.",
     "All files exceed the maximum size.": "Все файлы превышают максимальный размер.",

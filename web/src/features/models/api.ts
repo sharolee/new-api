@@ -43,6 +43,7 @@ import type {
   GetCategoriesResponse,
   AssignCategoriesPayload,
   AssignCategoriesResponse,
+  GetAvailableChannelsResponse,
 } from './types'
 
 // ============================================================================
@@ -660,6 +661,15 @@ export async function getAvailableModel(
   modelName: string
 ): Promise<{ success: boolean; message?: string; data?: AvailableModel }> {
   const res = await api.get(`/api/models/available/${encodeURIComponent(modelName)}`)
+  return res.data
+}
+
+/**
+ * Get channels with at least one enabled ability (for the channel filter on
+ * the available models page).
+ */
+export async function getAvailableChannels(): Promise<GetAvailableChannelsResponse> {
+  const res = await api.get('/api/models/available/channels')
   return res.data
 }
 
