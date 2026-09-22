@@ -558,6 +558,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			errOther["channel_id"] = relayInfo.ChannelId
 			errOther["channel_name"] = ctx.GetString("channel_name")
 			errOther["channel_type"] = ctx.GetInt("channel_type")
+			// 记录模型映射信息，与消耗日志展示保持一致
+			if relayInfo.IsModelMapped {
+				errOther["is_model_mapped"] = true
+				errOther["upstream_model_name"] = relayInfo.UpstreamModelName
+			}
 			errOther["admin_info"] = map[string]interface{}{
 				"use_channel": ctx.GetStringSlice("use_channel"),
 			}

@@ -16,15 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Route } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
-
 import { StatusBadge } from '@/components/status-badge'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -154,42 +146,24 @@ function ModelBadgeContent(props: ModelBadgeProps) {
 }
 
 export function ModelBadge(props: ModelBadgeProps) {
-  const { t } = useTranslation()
-
+  // When the model was mapped, show the actual (mapped) model name directly
+  // below the requested model name so the mapping is visible without an extra
+  // click. Non-mapped models render the single badge as before.
   if (!props.actualModel) {
     return <ModelBadgeContent {...props} />
   }
 
   return (
-    <Popover>
-      <PopoverTrigger
-        render={
-          <button type='button' className='inline-flex items-center gap-1' />
-        }
+    <div className='flex max-w-full flex-col items-start gap-0.5'>
+      <ModelBadgeContent {...props} />
+      <span
+        className='text-muted-foreground/70 min-w-0 truncate font-mono text-[11px] leading-tight tabular-nums'
+        title={props.actualModel}
+        aria-label={`${props.modelName} -> ${props.actualModel}`}
+        data-actual-model='true'
       >
-        <ModelBadgeContent {...props} />
-        <Route className='text-muted-foreground size-3 shrink-0' />
-      </PopoverTrigger>
-      <PopoverContent className='w-72'>
-        <div className='space-y-2'>
-          <div className='flex items-start justify-between gap-3'>
-            <span className='text-muted-foreground text-xs'>
-              {t('Request Model:')}
-            </span>
-            <span className='truncate font-mono text-xs font-medium'>
-              {props.modelName}
-            </span>
-          </div>
-          <div className='flex items-start justify-between gap-3'>
-            <span className='text-muted-foreground text-xs'>
-              {t('Actual Model:')}
-            </span>
-            <span className='truncate font-mono text-xs font-medium'>
-              {props.actualModel}
-            </span>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+        {props.actualModel}
+      </span>
+    </div>
   )
 }
