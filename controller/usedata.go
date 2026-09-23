@@ -28,11 +28,22 @@ func parseFlowQuotaTimeRange(c *gin.Context) (int64, int64, bool) {
 	return startTimestamp, endTimestamp, true
 }
 
+// aggregateByQuery 解析模型聚合维度查询参数，默认按请求模型（model_name）聚合。
+// 可选值：model_name（默认，请求模型）、upstream_model_name（渠道映射后的上游模型）。
+func aggregateByQuery(c *gin.Context) string {
+	aggregateBy := c.Query("aggregate_by")
+	if aggregateBy != "upstream_model_name" && aggregateBy != "model_name" {
+		return "model_name"
+	}
+	return aggregateBy
+}
+
 func GetAllQuotaDates(c *gin.Context) {
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	username := c.Query("username")
-	dates, err := model.GetAllQuotaDates(startTimestamp, endTimestamp, username)
+	aggregateBy := aggregateByQuery(c)
+	dates, err := model.GetAllQuotaDates(startTimestamp, endTimestamp, username, aggregateBy)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -72,7 +83,8 @@ func GetUserQuotaDates(c *gin.Context) {
 		})
 		return
 	}
-	dates, err := model.GetQuotaDataByUserId(userId, startTimestamp, endTimestamp)
+	aggregateBy := aggregateByQuery(c)
+	dates, err := model.GetQuotaDataByUserId(userId, startTimestamp, endTimestamp, aggregateBy)
 	if err != nil {
 		common.ApiError(c, err)
 		return

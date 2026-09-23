@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
-	"sort"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -360,21 +360,21 @@ func RecordMiddlewareErrorLog(c *gin.Context, userId int, tokenName string, stat
 	}
 
 	log := &Log{
-		UserId:            userId,
-		Username:          username,
-		CreatedAt:         common.GetTimestamp(),
-		Type:              LogTypeError,
-		Content:           errorMessage,
-		PromptTokens:      0,
-		CompletionTokens:  0,
-		TokenName:         tokenName,
-		ModelName:         "",
-		Quota:             0,
-		ChannelId:         0,
-		TokenId:           c.GetInt("token_id"),
-		UseTime:           0,
-		IsStream:          false,
-		Group:             c.GetString("group"),
+		UserId:           userId,
+		Username:         username,
+		CreatedAt:        common.GetTimestamp(),
+		Type:             LogTypeError,
+		Content:          errorMessage,
+		PromptTokens:     0,
+		CompletionTokens: 0,
+		TokenName:        tokenName,
+		ModelName:        "",
+		Quota:            0,
+		ChannelId:        0,
+		TokenId:          c.GetInt("token_id"),
+		UseTime:          0,
+		IsStream:         false,
+		Group:            c.GetString("group"),
 		Ip: func() string {
 			if needRecordIp {
 				return c.ClientIP()
@@ -392,18 +392,19 @@ func RecordMiddlewareErrorLog(c *gin.Context, userId int, tokenName string, stat
 }
 
 type RecordConsumeLogParams struct {
-	ChannelId        int                    `json:"channel_id"`
-	PromptTokens     int                    `json:"prompt_tokens"`
-	CompletionTokens int                    `json:"completion_tokens"`
-	ModelName        string                 `json:"model_name"`
-	TokenName        string                 `json:"token_name"`
-	Quota            int                    `json:"quota"`
-	Content          string                 `json:"content"`
-	TokenId          int                    `json:"token_id"`
-	UseTimeSeconds   int                    `json:"use_time_seconds"`
-	IsStream         bool                   `json:"is_stream"`
-	Group            string                 `json:"group"`
-	Other            map[string]interface{} `json:"other"`
+	ChannelId         int                    `json:"channel_id"`
+	PromptTokens      int                    `json:"prompt_tokens"`
+	CompletionTokens  int                    `json:"completion_tokens"`
+	ModelName         string                 `json:"model_name"`
+	UpstreamModelName string                 `json:"upstream_model_name"`
+	TokenName         string                 `json:"token_name"`
+	Quota             int                    `json:"quota"`
+	Content           string                 `json:"content"`
+	TokenId           int                    `json:"token_id"`
+	UseTimeSeconds    int                    `json:"use_time_seconds"`
+	IsStream          bool                   `json:"is_stream"`
+	Group             string                 `json:"group"`
+	Other             map[string]interface{} `json:"other"`
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
@@ -455,31 +456,33 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	if common.DataExportEnabled {
 		LogQuotaData(QuotaDataLogParams{
-			UserID:    userId,
-			Username:  username,
-			ModelName: params.ModelName,
-			Quota:     params.Quota,
-			CreatedAt: createdAt,
-			TokenUsed: params.PromptTokens + params.CompletionTokens,
-			UseGroup:  params.Group,
-			TokenID:   params.TokenId,
-			ChannelID: params.ChannelId,
-			NodeName:  common.NodeName,
+			UserID:            userId,
+			Username:          username,
+			ModelName:         params.ModelName,
+			UpstreamModelName: params.UpstreamModelName,
+			Quota:             params.Quota,
+			CreatedAt:         createdAt,
+			TokenUsed:         params.PromptTokens + params.CompletionTokens,
+			UseGroup:          params.Group,
+			TokenID:           params.TokenId,
+			ChannelID:         params.ChannelId,
+			NodeName:          common.NodeName,
 		})
 	}
 }
 
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   string
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     map[string]interface{}
-	NodeName  string // 任务发起节点；为空时回退当前节点
+	UserId            int
+	LogType           int
+	Content           string
+	ChannelId         int
+	ModelName         string
+	UpstreamModelName string
+	Quota             int
+	TokenId           int
+	Group             string
+	Other             map[string]interface{}
+	NodeName          string // 任务发起节点；为空时回退当前节点
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -518,15 +521,16 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 			nodeName = common.NodeName
 		}
 		LogQuotaData(QuotaDataLogParams{
-			UserID:    params.UserId,
-			Username:  username,
-			ModelName: params.ModelName,
-			Quota:     params.Quota,
-			CreatedAt: createdAt,
-			UseGroup:  params.Group,
-			TokenID:   params.TokenId,
-			ChannelID: params.ChannelId,
-			NodeName:  nodeName,
+			UserID:            params.UserId,
+			Username:          username,
+			ModelName:         params.ModelName,
+			UpstreamModelName: params.UpstreamModelName,
+			Quota:             params.Quota,
+			CreatedAt:         createdAt,
+			UseGroup:          params.Group,
+			TokenID:           params.TokenId,
+			ChannelID:         params.ChannelId,
+			NodeName:          nodeName,
 		})
 	}
 }
@@ -726,7 +730,6 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		rpmTpmQuery = rpmTpmQuery.Where("type = ?", logType)
 	}
 
-
 	// 只统计最近60秒的rpm和tpm
 	rpmTpmQuery = rpmTpmQuery.Where("created_at >= ?", time.Now().Add(-60*time.Second).Unix())
 
@@ -810,7 +813,7 @@ func DeleteOldLogBatch(ctx context.Context, targetTimestamp int64, limit int) (i
 	if nil != result.Error {
 		return 0, result.Error
 	}
-return result.RowsAffected, nil
+	return result.RowsAffected, nil
 }
 
 type ErrorLogStatsItem struct {
@@ -826,49 +829,83 @@ type DateErrorStats struct {
 	ByChannel map[string]int `json:"by_channel"`
 }
 type ErrorLogStats struct {
-	Total     int                   `json:"total"`
-	ByChannel map[string]int        `json:"by_channel"`
-	ByError   map[string]int        `json:"by_error"`
-	ByDate    []DateErrorStats      `json:"by_date"`
-	Detail    []ErrorLogStatsItem   `json:"detail"`
+	Total     int                 `json:"total"`
+	ByChannel map[string]int      `json:"by_channel"`
+	ByError   map[string]int      `json:"by_error"`
+	ByDate    []DateErrorStats    `json:"by_date"`
+	Detail    []ErrorLogStatsItem `json:"detail"`
 }
+
 func GetErrorLogStats(startTimestamp, endTimestamp int64, username, modelName, group string, channelId int, granularity string) (*ErrorLogStats, error) {
 	stats := &ErrorLogStats{ByChannel: make(map[string]int), ByError: make(map[string]int)}
 	var logs []*Log
 	tx := LOG_DB.Where("type = ?", LogTypeError)
-	if username != "" { tx = tx.Where("username = ?", username) }
-	if modelName != "" { tx = tx.Where("model_name = ?", modelName) }
-	if group != "" { tx = tx.Where(logGroupCol+" = ?", group) }
-	if channelId > 0 { tx = tx.Where("channel_id = ?", channelId) }
-	if startTimestamp > 0 { tx = tx.Where("created_at >= ?", startTimestamp) }
-	if endTimestamp > 0 { tx = tx.Where("created_at <= ?", endTimestamp) }
+	if username != "" {
+		tx = tx.Where("username = ?", username)
+	}
+	if modelName != "" {
+		tx = tx.Where("model_name = ?", modelName)
+	}
+	if group != "" {
+		tx = tx.Where(logGroupCol+" = ?", group)
+	}
+	if channelId > 0 {
+		tx = tx.Where("channel_id = ?", channelId)
+	}
+	if startTimestamp > 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp > 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
 	err := tx.Find(&logs).Error
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	bucketSize := int64(3600)
-	if granularity == "day" { bucketSize = 86400 }
+	if granularity == "day" {
+		bucketSize = 86400
+	}
 	channelErrorMap := make(map[string]*ErrorLogStatsItem)
 	dateMap := make(map[string]*DateErrorStats)
 	for _, log := range logs {
 		stats.Total++
 		channelKey := fmt.Sprintf("%d", log.ChannelId)
 		var otherMap map[string]interface{}
-		if log.Other != "" { if m, err := common.StrToMap(log.Other); err == nil { otherMap = m } }
+		if log.Other != "" {
+			if m, err := common.StrToMap(log.Other); err == nil {
+				otherMap = m
+			}
+		}
 		errorCode := common.CategorizeErrorLogFromOther(otherMap)
 		stats.ByChannel[channelKey]++
 		stats.ByError[errorCode]++
 		ceKey := channelKey + "|" + errorCode
-	if existing, ok := channelErrorMap[ceKey]; ok { existing.Count++ } else { channelErrorMap[ceKey] = &ErrorLogStatsItem{ChannelId: log.ChannelId, ChannelName: log.ChannelName, ErrorCode: errorCode, Count: 1} }
+		if existing, ok := channelErrorMap[ceKey]; ok {
+			existing.Count++
+		} else {
+			channelErrorMap[ceKey] = &ErrorLogStatsItem{ChannelId: log.ChannelId, ChannelName: log.ChannelName, ErrorCode: errorCode, Count: 1}
+		}
 		bucketKey := fmt.Sprintf("%d", log.CreatedAt/bucketSize*bucketSize)
-	if ds, ok := dateMap[bucketKey]; ok { ds.Total++; ds.ByError[errorCode]++; ds.ByChannel[channelKey]++ } else { dateMap[bucketKey] = &DateErrorStats{Date: bucketKey, Total: 1, ByError: map[string]int{errorCode: 1}, ByChannel: map[string]int{channelKey: 1}} }
+		if ds, ok := dateMap[bucketKey]; ok {
+			ds.Total++
+			ds.ByError[errorCode]++
+			ds.ByChannel[channelKey]++
+		} else {
+			dateMap[bucketKey] = &DateErrorStats{Date: bucketKey, Total: 1, ByError: map[string]int{errorCode: 1}, ByChannel: map[string]int{channelKey: 1}}
+		}
 	}
 	stats.Detail = make([]ErrorLogStatsItem, 0, len(channelErrorMap))
-	for _, item := range channelErrorMap { stats.Detail = append(stats.Detail, *item) }
+	for _, item := range channelErrorMap {
+		stats.Detail = append(stats.Detail, *item)
+	}
 	dateKeys := make([]string, 0, len(dateMap))
 	for key := range dateMap {
 		dateKeys = append(dateKeys, key)
 	}
 	sort.Strings(dateKeys)
-	for _, key := range dateKeys { stats.ByDate = append(stats.ByDate, *dateMap[key]) }
+	for _, key := range dateKeys {
+		stats.ByDate = append(stats.ByDate, *dateMap[key])
+	}
 	return stats, nil
 }
-

@@ -39,6 +39,7 @@ export async function getUserQuotaDates(
     end_timestamp: number
     default_time?: string
     username?: string
+    aggregate_by?: 'model_name' | 'upstream_model_name'
   },
   isAdmin = false
 ) {

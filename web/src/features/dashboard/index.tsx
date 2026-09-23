@@ -77,6 +77,16 @@ const PERFORMANCE_MODEL_FALLBACK_KEYS = [
   'secondary-model',
 ] as const
 
+// 模型分析聚合维度的本地存储键
+const MODEL_AGGREGATE_BY_STORAGE_KEY = 'dashboard-model-aggregate-by'
+const MODEL_AGGREGATE_OPTIONS = [
+  { value: 'model_name' as const, labelKey: 'By request model' },
+  {
+    value: 'upstream_model_name' as const,
+    labelKey: 'By upstream model',
+  },
+]
+
 const LazyLogStatCards = lazy(() =>
   import('./components/models/log-stat-cards').then((m) => ({
     default: m.LogStatCards,
@@ -218,6 +228,20 @@ export function Dashboard() {
   const [modelFilters, setModelFilters] = useState<DashboardFilters>(() =>
     buildDefaultDashboardFilters(getSavedChartPreferences())
   )
+  // 模型分析聚合维度：model_name（请求模型）或 upstream_model_name（渠道映射后的上游模型）
+  const [modelAggregateBy, setModelAggregateBy] = useState<
+    'model_name' | 'upstream_model_name'
+  >(() => {
+    try {
+      const saved = window.localStorage.getItem(MODEL_AGGREGATE_BY_STORAGE_KEY)
+      if (saved === 'upstream_model_name' || saved === 'model_name') {
+        return saved
+      }
+    } catch {
+      /* empty */
+    }
+    return 'model_name'
+  })
   const [userChartsFilters, setUserChartsFilters] = useState<UserChartsFilters>(
     () => {
       const granularity = getSavedGranularity()
@@ -255,6 +279,18 @@ export function Dashboard() {
     []
   )
 
+  const handleAggregateByChange = useCallback(
+    (aggregateBy: 'model_name' | 'upstream_model_name') => {
+      setModelAggregateBy(aggregateBy)
+      try {
+        window.localStorage.setItem(MODEL_AGGREGATE_BY_STORAGE_KEY, aggregateBy)
+      } catch {
+        /* empty */
+      }
+    },
+    []
+  )
+
   const meta = SECTION_META[activeSection] ?? SECTION_META.overview
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
   const visibleSections = useMemo(
@@ -278,6 +314,22 @@ export function Dashboard() {
   const modelActions =
     activeSection === 'models' ? (
       <>
+        <div className='bg-muted/60 inline-flex h-7 shrink-0 items-center overflow-hidden rounded-lg border p-0.5 sm:h-8'>
+          {MODEL_AGGREGATE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type='button'
+              onClick={() => handleAggregateByChange(option.value)}
+              className={`shrink-0 rounded-md px-3 text-xs font-medium transition-colors ${
+                modelAggregateBy === option.value
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t(option.labelKey)}
+            </button>
+          ))}
+        </div>
         <ModelsChartPreferences
           preferences={chartPreferences}
           onPreferencesChange={handleChartPreferencesChange}
@@ -364,6 +416,7 @@ export function Dashboard() {
                   <LazyLogStatCards
                     filters={modelFilters}
                     onDataUpdate={handleDataUpdate}
+                    aggregateBy={modelAggregateBy}
                   />
                 </Suspense>
               </FadeIn>

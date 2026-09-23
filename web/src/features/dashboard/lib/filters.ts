@@ -154,16 +154,19 @@ export function buildDefaultDashboardFilters(
 
 export function buildQueryParams(
   timeRange: { start_timestamp: number; end_timestamp: number },
-  filters?: { time_granularity?: TimeGranularity; username?: string }
+  filters?: { time_granularity?: TimeGranularity; username?: string },
+  aggregateBy?: 'model_name' | 'upstream_model_name'
 ): {
   start_timestamp: number
   end_timestamp: number
   default_time: string
   username?: string
+  aggregate_by?: 'model_name' | 'upstream_model_name'
 } {
   return {
     ...timeRange,
     default_time: getSavedGranularity(filters?.time_granularity),
     ...(filters?.username && { username: filters.username }),
+    ...(aggregateBy && aggregateBy !== 'model_name' && { aggregate_by: aggregateBy }),
   }
 }
