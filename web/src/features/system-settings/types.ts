@@ -263,6 +263,7 @@ export type BillingSettings = {
   DisplayTokenStatEnabled: boolean
   ModelPrice: string
   ModelRatio: string
+  FallbackModelRatio: number
   CacheRatio: string
   CreateCacheRatio: string
   CompletionRatio: string

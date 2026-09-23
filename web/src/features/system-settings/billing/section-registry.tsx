@@ -29,6 +29,7 @@ import { createSectionRegistry } from '../utils/section-registry'
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
   ModelRatio: settings.ModelRatio,
+  FallbackModelRatio: settings.FallbackModelRatio,
   CacheRatio: settings.CacheRatio,
   CreateCacheRatio: settings.CreateCacheRatio,
   CompletionRatio: settings.CompletionRatio,
@@ -111,6 +112,7 @@ const BILLING_SECTIONS = [
         modelDefaults={getModelDefaults(settings)}
         groupDefaults={getGroupDefaults(settings)}
         toolPricesDefault={settings['tool_price_setting.prices']}
+        fallbackModelRatio={settings.FallbackModelRatio}
         visibleTabs={['models', 'unset-models', 'tool-prices', 'upstream-sync']}
       />
     ),

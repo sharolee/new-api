@@ -41,6 +41,7 @@ const defaultBillingSettings: BillingSettings = {
   DisplayTokenStatEnabled: true,
   ModelPrice: '',
   ModelRatio: '',
+  FallbackModelRatio: 37.5,
   CacheRatio: '',
   CreateCacheRatio: '',
   CompletionRatio: '',

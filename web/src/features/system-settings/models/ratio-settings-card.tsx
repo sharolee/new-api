@@ -25,6 +25,8 @@ import { toast } from 'sonner'
 import * as z from 'zod'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { resetModelRatios } from '../api'
@@ -151,6 +153,7 @@ type RatioSettingsCardProps = {
   toolPricesDefault: string
   titleKey?: string
   visibleTabs?: RatioTabId[]
+  fallbackModelRatio?: number
 }
 
 export function RatioSettingsCard({
@@ -159,11 +162,16 @@ export function RatioSettingsCard({
   toolPricesDefault,
   titleKey = 'Pricing Ratios',
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
+  fallbackModelRatio,
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [fallbackRatioDraft, setFallbackRatioDraft] = useState<number | ''>(
+    typeof fallbackModelRatio === 'number' ? fallbackModelRatio : ''
+  )
+  const [fallbackRatioSaving, setFallbackRatioSaving] = useState(false)
 
   const resetMutation = useMutation({
     mutationFn: resetModelRatios,
@@ -393,6 +401,31 @@ export function RatioSettingsCard({
     [updateOption]
   )
 
+  useEffect(() => {
+    setFallbackRatioDraft(
+      typeof fallbackModelRatio === 'number' ? fallbackModelRatio : ''
+    )
+  }, [fallbackModelRatio])
+
+  const handleSaveFallbackRatio = useCallback(async () => {
+    if (
+      typeof fallbackRatioDraft !== 'number' ||
+      !Number.isFinite(fallbackRatioDraft) ||
+      fallbackRatioDraft <= 0
+    ) {
+      return
+    }
+    setFallbackRatioSaving(true)
+    try {
+      await updateOption.mutateAsync({
+        key: 'FallbackModelRatio',
+        value: fallbackRatioDraft,
+      })
+    } finally {
+      setFallbackRatioSaving(false)
+    }
+  }, [fallbackRatioDraft, updateOption])
+
   const handleResetRatios = useCallback(() => {
     setConfirmOpen(true)
   }, [])
@@ -473,10 +506,53 @@ export function RatioSettingsCard({
     </TabsList>
   )
 
+  const renderFallbackRatioEditor = () => (
+    <div className='grid gap-4 rounded-lg border border-border p-4 sm:grid-cols-[1fr_auto] sm:items-end'>
+      <div className='grid gap-1.5'>
+        <label htmlFor='fallback-model-ratio' className='text-sm font-medium'>
+          {t('Default ratio for unset models')}
+        </label>
+        <Input
+          id='fallback-model-ratio'
+          type='number'
+          min={0}
+          step={0.01}
+          value={fallbackRatioDraft}
+          onChange={(e) =>
+            setFallbackRatioDraft(
+              e.target.value === '' ? '' : e.target.valueAsNumber
+            )
+          }
+          className='max-w-[16rem]'
+        />
+        <p className='text-xs text-muted-foreground'>
+          {t(
+            'Applied to models without an explicit price or ratio (e.g. when self-use mode is enabled).'
+          )}
+        </p>
+      </div>
+      <Button
+        type='button'
+        size='sm'
+        variant='outline'
+        disabled={
+          fallbackRatioSaving ||
+          typeof fallbackRatioDraft !== 'number' ||
+          !Number.isFinite(fallbackRatioDraft) ||
+          fallbackRatioDraft <= 0
+        }
+        onClick={handleSaveFallbackRatio}
+      >
+        {fallbackRatioSaving ? t('Saving...') : t('Save')}
+      </Button>
+    </div>
+  )
+
   return (
     <>
       {visibleTabs.length === 1 ? (
         <SettingsSection title={t(titleKey)}>
+          {fallbackModelRatio !== undefined && renderFallbackRatioEditor()}
           {renderTabContent(defaultTab)}
         </SettingsSection>
       ) : (
@@ -486,6 +562,7 @@ export function RatioSettingsCard({
           </SettingsPageTitleStatusPortal>
 
           <SettingsSection title={t(titleKey)} className='min-h-0 flex-1'>
+            {fallbackModelRatio !== undefined && renderFallbackRatioEditor()}
             {visibleTabs.map((tab) => (
               <TabsContent key={tab} value={tab} className='min-h-0'>
                 {renderTabContent(tab)}

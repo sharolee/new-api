@@ -570,13 +570,13 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 				// 默认为可信
 				confidenceMap[channel.name][modelName] = true
 
-				// 检查是否满足不可信条件：model_ratio为37.5且completion_ratio为1
+				// 检查是否满足不可信条件：model_ratio为fallback值且completion_ratio为1
 				if modelRatioVal, ok := modelRatios[modelName]; ok {
 					if completionRatioVal, ok := completionRatios[modelName]; ok {
 						// 转换为float64进行比较
 						modelRatioFloat, modelRatioOK := asFloat64(modelRatioVal)
 						completionRatioFloat, completionRatioOK := asFloat64(completionRatioVal)
-						if modelRatioOK && completionRatioOK && nearlyEqual(modelRatioFloat, 37.5) && nearlyEqual(completionRatioFloat, 1.0) {
+						if modelRatioOK && completionRatioOK && nearlyEqual(modelRatioFloat, ratio_setting.GetFallbackModelRatio()) && nearlyEqual(completionRatioFloat, 1.0) {
 							confidenceMap[channel.name][modelName] = false
 						}
 					}

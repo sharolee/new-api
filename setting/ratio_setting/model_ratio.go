@@ -332,6 +332,23 @@ var defaultCompletionRatio = map[string]float64{
 	"gpt-image-1":    8,
 }
 
+// fallbackModelRatio 是未在 ModelRatio 中配置的模型使用的默认倍率，
+// 可通过系统选项 FallbackModelRatio 覆盖（默认 37.5，即 $0.075 / 1K tokens）。
+var fallbackModelRatio = 37.5
+
+// GetFallbackModelRatio 返回未配置价格模型的默认倍率
+func GetFallbackModelRatio() float64 {
+	return fallbackModelRatio
+}
+
+// SetFallbackModelRatio 设置未配置价格模型的默认倍率，忽略非正值
+func SetFallbackModelRatio(v float64) {
+	if v <= 0 {
+		return
+	}
+	fallbackModelRatio = v
+}
+
 // InitRatioSettings initializes all model related settings maps
 func InitRatioSettings() {
 	modelPriceMap.AddAll(defaultModelPrice)
@@ -404,7 +421,7 @@ func GetModelRatio(name string) (float64, bool, string) {
 			}
 			//return 0, true, name
 		}
-		return 37.5, operation_setting.SelfUseModeEnabled, name
+		return fallbackModelRatio, operation_setting.SelfUseModeEnabled, name
 	}
 	return ratio, true, name
 }
@@ -745,5 +762,5 @@ func GetModelRatioOrPrice(model string) (float64, bool, bool) { // price or rati
 	if success {
 		return modelRatio, false, true
 	}
-	return 37.5, false, false
+	return fallbackModelRatio, false, false
 }
