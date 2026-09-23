@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import type { ErrorAnalysisStats } from '../../types'
 import { buildErrorChartSpecs, type ErrorChartSpec } from '../error-charts'
@@ -54,14 +53,14 @@ const stats: ErrorAnalysisStats = {
 }
 
 function assertVChartBarOrArea(spec: ErrorChartSpec) {
-  assert.ok(spec.xField, 'spec must use VChart xField')
-  assert.ok(spec.yField, 'spec must use VChart yField')
-  assert.equal('encode' in spec, false)
-  assert.equal('dataField' in spec, false)
-  assert.equal('categoryField' in spec, false)
-  assert.ok(Array.isArray(spec.data), 'spec.data must be [{ id, values }]')
-  assert.equal(typeof spec.data[0]?.id, 'string')
-  assert.ok(Array.isArray(spec.data[0]?.values))
+  expect(spec.xField, 'spec must use VChart xField').toBeTruthy()
+  expect(spec.yField, 'spec must use VChart yField').toBeTruthy()
+  expect('encode' in spec).toBe(false)
+  expect('dataField' in spec).toBe(false)
+  expect('categoryField' in spec).toBe(false)
+  expect(Array.isArray(spec.data), 'spec.data must be [{ id, values }]').toBe(true)
+  expect(typeof spec.data[0]?.id).toBe('string')
+  expect(Array.isArray(spec.data[0]?.values)).toBe(true)
 }
 
 describe('buildErrorChartSpecs', () => {
@@ -69,27 +68,27 @@ describe('buildErrorChartSpecs', () => {
     const specs = buildErrorChartSpecs(stats, t, 'hour')
 
     assertVChartBarOrArea(specs.spec_channel_bar)
-    assert.equal(specs.spec_channel_bar.type, 'bar')
-    assert.equal(specs.spec_channel_bar.xField, 'Channel')
-    assert.equal(specs.spec_channel_bar.yField, 'Count')
-    assert.deepEqual(specs.spec_channel_bar.data[0].values, [
+    expect(specs.spec_channel_bar.type).toBe('bar')
+    expect(specs.spec_channel_bar.xField).toBe('Channel')
+    expect(specs.spec_channel_bar.yField).toBe('Count')
+    expect(specs.spec_channel_bar.data[0].values).toEqual([
       { Channel: 'openai', Count: 2 },
     ])
 
     assertVChartBarOrArea(specs.spec_error_bar)
-    assert.equal(specs.spec_error_bar.type, 'bar')
-    assert.equal(specs.spec_error_bar.xField, 'Error')
-    assert.equal(specs.spec_error_bar.yField, 'Count')
-    assert.deepEqual(specs.spec_error_bar.data[0].values, [
+    expect(specs.spec_error_bar.type).toBe('bar')
+    expect(specs.spec_error_bar.xField).toBe('Error')
+    expect(specs.spec_error_bar.yField).toBe('Count')
+    expect(specs.spec_error_bar.data[0].values).toEqual([
       { Error: '404', Count: 1, Code: '404' },
       { Error: '429', Count: 1, Code: '429' },
     ])
 
     assertVChartBarOrArea(specs.spec_trend_line)
-    assert.equal(specs.spec_trend_line.type, 'area')
-    assert.equal(specs.spec_trend_line.xField, 'Time')
-    assert.equal(specs.spec_trend_line.yField, 'Count')
-    assert.deepEqual(specs.spec_trend_line.data[0].values, [
+    expect(specs.spec_trend_line.type).toBe('area')
+    expect(specs.spec_trend_line.xField).toBe('Time')
+    expect(specs.spec_trend_line.yField).toBe('Count')
+    expect(specs.spec_trend_line.data[0].values).toEqual([
       { Time: formatChartTime(1710000000, 'hour'), Count: 1 },
       { Time: formatChartTime(1710003600, 'hour'), Count: 1 },
     ])
@@ -106,7 +105,7 @@ describe('buildErrorChartSpecs', () => {
       'hour'
     )
 
-    assert.deepEqual(specs.spec_channel_bar.data[0].values, [
+    expect(specs.spec_channel_bar.data[0].values).toEqual([
       { Channel: '#42', Count: 2 },
     ])
   })
@@ -137,7 +136,7 @@ describe('buildErrorChartSpecs', () => {
       'hour'
     )
 
-    assert.deepEqual(specs.spec_error_bar.data[0].values, [
+    expect(specs.spec_error_bar.data[0].values).toEqual([
       { Error: '速率限制', Count: 2, Code: 'rate_limit' },
       { Error: '未找到', Count: 1, Code: 'not_found' },
       { Error: '额度不足', Count: 1, Code: 'quota' },
@@ -160,8 +159,8 @@ describe('buildErrorChartSpecs', () => {
     assertVChartBarOrArea(specs.spec_channel_bar)
     assertVChartBarOrArea(specs.spec_error_bar)
     assertVChartBarOrArea(specs.spec_trend_line)
-    assert.deepEqual(specs.spec_channel_bar.data[0].values, [])
-    assert.deepEqual(specs.spec_error_bar.data[0].values, [])
-    assert.deepEqual(specs.spec_trend_line.data[0].values, [])
+    expect(specs.spec_channel_bar.data[0].values).toEqual([])
+    expect(specs.spec_error_bar.data[0].values).toEqual([])
+    expect(specs.spec_trend_line.data[0].values).toEqual([])
   })
 })
