@@ -3,8 +3,8 @@ Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3, or
-(at your option) any later version.
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -123,3 +123,26 @@ export interface ErrorAnalysisFilters {
   username?: string; model_name?: string; channel?: number
 }
 export type ErrorAnalysisChartTab = 'channel' | 'error' | 'trend'
+
+export type ModelRequestStatus =
+  | 'success'
+  | 'rate_limit'
+  | 'quota'
+  | 'unavailable'
+  | 'other_error'
+
+export interface ModelRequestResult {
+  status: ModelRequestStatus
+  created_at: number
+  channel_id: number
+  channel_name: string
+  error_category: string
+  error_code: string
+  content: string
+}
+
+export interface ModelRequestRow {
+  model: string
+  total: number
+  requests: ModelRequestResult[]
+}

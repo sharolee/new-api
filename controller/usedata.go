@@ -181,3 +181,42 @@ func GetUserErrorLogStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": stats})
 	return
 }
+
+func parseModelStatusParams(c *gin.Context) (startTimestamp int64, endTimestamp int64, limit int, aggregateBy string, username string) {
+	startTimestamp, _ = strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ = strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	limit, _ = strconv.Atoi(c.Query("limit"))
+	// model-status 端点默认按上游模型聚合（与用户需求一致），
+	// 区别于其它 data 端点默认按请求模型聚合。
+	aggregateBy = c.Query("aggregate_by")
+	if aggregateBy != "model_name" && aggregateBy != "upstream_model_name" {
+		aggregateBy = "upstream_model_name"
+	}
+	username = c.Query("username")
+	return
+}
+
+func GetAllModelRequestStatuses(c *gin.Context) {
+	startTimestamp, endTimestamp, limit, aggregateBy, username := parseModelStatusParams(c)
+	data, err := model.GetModelRequestStatuses(startTimestamp, endTimestamp, username, aggregateBy, limit, 0)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, data)
+}
+
+func GetUserModelRequestStatuses(c *gin.Context) {
+	userId := c.GetInt("id")
+	startTimestamp, endTimestamp, limit, aggregateBy, _ := parseModelStatusParams(c)
+	if endTimestamp-startTimestamp > 2592000 {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "时间跨度不能超过 1 个月"})
+		return
+	}
+	data, err := model.GetModelRequestStatuses(startTimestamp, endTimestamp, "", aggregateBy, limit, userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, data)
+}

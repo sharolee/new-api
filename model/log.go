@@ -18,6 +18,12 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	modelStatusQueryLimit = 20000
+	modelStatusDefaultLimit = 20
+	modelStatusMaxLimit = 100
+)
+
 func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {
 	if value == "" {
 		return tx, nil
@@ -918,4 +924,162 @@ func GetErrorLogStats(startTimestamp, endTimestamp int64, username, modelName, g
 		stats.ByDate = append(stats.ByDate, *dateMap[key])
 	}
 	return stats, nil
+}
+
+// ModelRequestResult 表示某个模型下的一条最近请求状态格点。
+type ModelRequestResult struct {
+	Status        string `json:"status"` // success | rate_limit | quota | unavailable | other_error
+	CreatedAt     int64  `json:"created_at"`
+	ChannelId     int    `json:"channel_id"`
+	ChannelName   string `json:"channel_name"`
+	ErrorCategory string `json:"error_category"`
+	ErrorCode     string `json:"error_code"`
+	Content       string `json:"content"`
+}
+
+// ModelRequestStatus 按聚合键（请求模型或上游模型）分组的最近请求状态。
+type ModelRequestStatus struct {
+	Model    string                `json:"model"`
+	Total    int                   `json:"total"`
+	Requests []ModelRequestResult  `json:"requests"`
+}
+
+const modelStatusContentLimit = 200
+
+// GetModelRequestStatuses 返回按模型分组的最近请求状态格点。
+// aggregateBy 支持 model_name（请求模型）与 upstream_model_name（渠道映射后的上游模型）；
+// limit 限制每个模型保留的最近请求数；username 与 userId 分别用于管理员与普通用户的过滤。
+func GetModelRequestStatuses(startTimestamp, endTimestamp int64, username string, aggregateBy string, limit int, userId int) ([]ModelRequestStatus, error) {
+	if aggregateBy != "upstream_model_name" {
+		aggregateBy = "model_name"
+	}
+	if limit <= 0 {
+		limit = modelStatusDefaultLimit
+	}
+	if limit > modelStatusMaxLimit {
+		limit = modelStatusMaxLimit
+	}
+
+	tx := LOG_DB.Where("type IN ?", []int{LogTypeConsume, LogTypeError})
+	if userId > 0 {
+		tx = tx.Where("user_id = ?", userId)
+	}
+	if username != "" {
+		tx = tx.Where("username = ?", username)
+	}
+	if startTimestamp > 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp > 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+	order := "created_at desc, id desc"
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		order = clickHouseLogOrder("")
+	}
+	var logs []*Log
+	if err := tx.Order(order).Limit(modelStatusQueryLimit).Find(&logs).Error; err != nil {
+		return nil, err
+	}
+
+	grouped := make(map[string]*ModelRequestStatus)
+	channelIds := types.NewSet[int]()
+	for _, log := range logs {
+		var otherMap map[string]interface{}
+		if log.Other != "" {
+			if m, err := common.StrToMap(log.Other); err == nil {
+				otherMap = m
+			}
+		}
+
+		key := log.ModelName
+		if aggregateBy == "upstream_model_name" {
+			isMapped, _ := otherMap["is_model_mapped"].(bool)
+			upstreamName, _ := otherMap["upstream_model_name"].(string)
+			if isMapped && upstreamName != "" {
+				key = upstreamName
+			}
+		}
+		if key == "" {
+			continue
+		}
+
+		group, ok := grouped[key]
+		if !ok {
+			group = &ModelRequestStatus{Model: key, Requests: make([]ModelRequestResult, 0, limit)}
+			grouped[key] = group
+		}
+		group.Total++
+		if len(group.Requests) >= limit {
+			continue
+		}
+
+		result := ModelRequestResult{
+			CreatedAt: log.CreatedAt,
+			ChannelId: log.ChannelId,
+		}
+		if log.Type == LogTypeConsume {
+			result.Status = "success"
+		} else {
+			category := common.CategorizeErrorLogFromOther(otherMap)
+			result.ErrorCategory = category
+			switch category {
+			case common.ErrorCategoryRateLimit:
+				result.Status = "rate_limit"
+			case common.ErrorCategoryQuota:
+				result.Status = "quota"
+			case common.ErrorCategoryNotFound, common.ErrorCategoryUnavailable:
+				result.Status = "unavailable"
+			default:
+				result.Status = "other_error"
+			}
+		}
+		if v, ok := otherMap["error_code"]; ok && v != nil {
+			if s, isString := v.(string); isString {
+				result.ErrorCode = s
+			} else {
+				result.ErrorCode = fmt.Sprint(v)
+			}
+		}
+		contentRunes := []rune(log.Content)
+		if len(contentRunes) > modelStatusContentLimit {
+			result.Content = string(contentRunes[:modelStatusContentLimit])
+		} else {
+			result.Content = log.Content
+		}
+		group.Requests = append(group.Requests, result)
+		if log.ChannelId != 0 {
+			channelIds.Add(log.ChannelId)
+		}
+	}
+
+	if channelIds.Len() > 0 {
+		var channels []struct {
+			Id   int    `gorm:"column:id"`
+			Name string `gorm:"column:name"`
+		}
+		if err := DB.Table("channels").Select("id, name").Where("id IN ?", channelIds.Items()).Find(&channels).Error; err != nil {
+			return nil, err
+		}
+		channelMap := make(map[int]string, len(channels))
+		for _, channel := range channels {
+			channelMap[channel.Id] = channel.Name
+		}
+		for _, group := range grouped {
+			for i := range group.Requests {
+				group.Requests[i].ChannelName = channelMap[group.Requests[i].ChannelId]
+			}
+		}
+	}
+
+	keys := make([]string, 0, len(grouped))
+	for key := range grouped {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]ModelRequestStatus, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, *grouped[key])
+	}
+	return result, nil
 }

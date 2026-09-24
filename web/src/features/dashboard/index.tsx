@@ -3,8 +3,8 @@ Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3, or
-(at your option) any later version.
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -123,6 +123,12 @@ const LazyErrorAnalysisChart = lazy(() =>
   }))
 )
 
+const LazyModelStatusGrid = lazy(() =>
+  import('./components/model-status/model-status-grid').then((m) => ({
+    default: m.ModelStatusGrid,
+  }))
+)
+
 const LazyUserCharts = lazy(() =>
   import('./components/users/user-charts').then((m) => ({
     default: m.UserCharts,
@@ -204,6 +210,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   },
   models: {
     titleKey: 'Model Call Analytics',
+  },
+  'model-status': {
+    titleKey: 'Model Status Grid',
   },
   flow: {
     titleKey: 'Flow',
@@ -482,6 +491,13 @@ export function Dashboard() {
                 </Suspense>
               </FadeIn>
             </>
+          )}
+          {activeSection === 'model-status' && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyModelStatusGrid />
+              </Suspense>
+            </FadeIn>
           )}
           {activeSection === 'users' && (
             <FadeIn>
