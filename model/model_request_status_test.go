@@ -127,8 +127,8 @@ func TestGetModelRequestStatuses(t *testing.T) {
 		Content:   "mapped to upstream",
 		ChannelId: 66,
 		Other: common.MapToJsonStr(map[string]any{
-			"is_model_mapped":      true,
-			"upstream_model_name":  "upstream-gpt-4",
+			"is_model_mapped":     true,
+			"upstream_model_name": "upstream-gpt-4",
 		}),
 	}).Error)
 
@@ -142,8 +142,8 @@ func TestGetModelRequestStatuses(t *testing.T) {
 		Content:   "not mapped",
 		ChannelId: 66,
 		Other: common.MapToJsonStr(map[string]any{
-			"is_model_mapped":      false,
-			"upstream_model_name":  "upstream-gpt-4",
+			"is_model_mapped":     false,
+			"upstream_model_name": "upstream-gpt-4",
 		}),
 	}).Error)
 
@@ -211,6 +211,127 @@ func TestGetModelRequestStatuses(t *testing.T) {
 	dataUser, err := GetModelRequestStatuses(now, now+30, "", "model_name", 10, 999)
 	require.NoError(t, err)
 	assert.Empty(t, dataUser)
+}
+
+func TestGetModelRequestStatusesUpstreamMiddlewareResolution(t *testing.T) {
+	truncateTables(t)
+
+	now := int64(3600 * 1000)
+
+	// 1) "flash" 唯一映射到 "gemini-2.5-flash"：成功日志携带映射信息
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeConsume,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "flash",
+		CreatedAt: now + 10,
+		Content:   "mapped success",
+		ChannelId: 1,
+		Other: common.MapToJsonStr(map[string]any{
+			"is_model_mapped":     true,
+			"upstream_model_name": "gemini-2.5-flash",
+		}),
+	}).Error)
+
+	// 2) "flash" 的中间件限流错误（无映射信息）→ 应归入 gemini-2.5-flash 行
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeError,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "flash",
+		CreatedAt: now + 20,
+		Content:   "platform rate limit",
+		ChannelId: 0,
+		Other: common.MapToJsonStr(map[string]any{
+			"middleware_error": true,
+			"error_category":   "rate_limit",
+			"error_code":       "rate_limit_exceeded",
+			"status_code":      429,
+		}),
+	}).Error)
+
+	// 3) "multi" 映射到两个不同上游（多次映射歧义）→ 其中间件错误保留在 "multi" 行
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeConsume,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "multi",
+		CreatedAt: now + 30,
+		Content:   "mapped a",
+		ChannelId: 2,
+		Other: common.MapToJsonStr(map[string]any{
+			"is_model_mapped":     true,
+			"upstream_model_name": "upstream-a",
+		}),
+	}).Error)
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeConsume,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "multi",
+		CreatedAt: now + 31,
+		Content:   "mapped b",
+		ChannelId: 3,
+		Other: common.MapToJsonStr(map[string]any{
+			"is_model_mapped":     true,
+			"upstream_model_name": "upstream-b",
+		}),
+	}).Error)
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeError,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "multi",
+		CreatedAt: now + 32,
+		Content:   "rate limited before channel",
+		ChannelId: 0,
+		Other: common.MapToJsonStr(map[string]any{
+			"middleware_error": true,
+			"error_category":   "rate_limit",
+		}),
+	}).Error)
+
+	// 4) "orphan" 没有映射日志 → 其中间件错误保留在 "orphan" 行
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeError,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "orphan",
+		CreatedAt: now + 40,
+		Content:   "auth denied",
+		ChannelId: 0,
+		Other: common.MapToJsonStr(map[string]any{
+			"middleware_error": true,
+			"error_category":   "auth",
+		}),
+	}).Error)
+
+	data, err := GetModelRequestStatuses(now, now+50, "", "upstream_model_name", 10, 1)
+	require.NoError(t, err)
+	modelMap := make(map[string]*ModelRequestStatus)
+	for i := range data {
+		modelMap[data[i].Model] = &data[i]
+	}
+
+	// 中间件限流与成功合并到唯一的上游行：gemini-2.5-flash 共 2 条，最新一条为 rate_limit
+	require.Contains(t, modelMap, "gemini-2.5-flash")
+	assert.Equal(t, 2, modelMap["gemini-2.5-flash"].Total)
+	assert.Len(t, modelMap["gemini-2.5-flash"].Requests, 2)
+	assert.Equal(t, "rate_limit", modelMap["gemini-2.5-flash"].Requests[0].Status)
+	assert.Equal(t, "success", modelMap["gemini-2.5-flash"].Requests[1].Status)
+	// 别名行不再出现
+	require.NotContains(t, modelMap, "flash")
+
+	// 歧义别名：两个上游各自成行，中间件错误保留在 multi 行
+	assert.Equal(t, 1, modelMap["upstream-a"].Total)
+	assert.Equal(t, 1, modelMap["upstream-b"].Total)
+	require.Contains(t, modelMap, "multi")
+	assert.Equal(t, 1, modelMap["multi"].Total)
+	assert.Equal(t, "rate_limit", modelMap["multi"].Requests[0].Status)
+
+	// 无映射的别名：中间件错误保留在 orphan 行
+	require.Contains(t, modelMap, "orphan")
+	assert.Equal(t, 1, modelMap["orphan"].Total)
 }
 
 func TestGetModelRequestStatusesContentTruncation(t *testing.T) {

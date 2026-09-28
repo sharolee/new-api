@@ -150,12 +150,12 @@ describe('ModelStatusGrid', () => {
       gptRow?.querySelectorAll('[data-status]') ?? [],
       (cell) => cell.getAttribute('data-status')
     )
-    // Default limit 20: 17 no-data pads + 3 requests, oldest → newest.
+    // Default limit 20: 3 requests newest → oldest, then 17 no-data pads.
     expect(gptStatuses).toHaveLength(20)
-    expect(gptStatuses.slice(17)).toEqual([
-      'unavailable',
-      'rate_limit',
+    expect(gptStatuses.slice(0, 3)).toEqual([
       'success',
+      'rate_limit',
+      'unavailable',
     ])
   })
 

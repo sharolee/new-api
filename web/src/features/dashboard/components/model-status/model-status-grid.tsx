@@ -325,7 +325,7 @@ export function ModelStatusGrid() {
                 </span>
               </div>
               <div className='text-muted-foreground text-xs'>
-                {t('Latest')} →
+                ← {t('Latest')}
               </div>
             </div>
             {rows.map((row) => (

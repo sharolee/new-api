@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	modelStatusQueryLimit = 20000
+	modelStatusQueryLimit   = 20000
 	modelStatusDefaultLimit = 20
-	modelStatusMaxLimit = 100
+	modelStatusMaxLimit     = 100
 )
 
 func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {
@@ -939,9 +939,9 @@ type ModelRequestResult struct {
 
 // ModelRequestStatus 按聚合键（请求模型或上游模型）分组的最近请求状态。
 type ModelRequestStatus struct {
-	Model    string                `json:"model"`
-	Total    int                   `json:"total"`
-	Requests []ModelRequestResult  `json:"requests"`
+	Model    string               `json:"model"`
+	Total    int                  `json:"total"`
+	Requests []ModelRequestResult `json:"requests"`
 }
 
 const modelStatusContentLimit = 200
@@ -984,6 +984,34 @@ func GetModelRequestStatuses(startTimestamp, endTimestamp int64, username string
 
 	grouped := make(map[string]*ModelRequestStatus)
 	channelIds := types.NewSet[int]()
+
+	// upstream 聚合模式下，先从窗口内已映射日志收集「请求模型 → 上游模型」的对应关系。
+	// 中间件错误（限流、鉴权失败等选渠道前错误）不携带映射信息，只能按请求模型名回退，
+	// 若该请求模型在窗口内唯一对应某个上游模型，则把这类错误归入该上游行，
+	// 避免同一个模型被拆成「别名错误行 + 上游成功行」两行。
+	aliasToUpstream := make(map[string]string)
+	ambiguousAliases := types.NewSet[string]()
+	if aggregateBy == "upstream_model_name" {
+		for _, log := range logs {
+			if log.Other == "" || log.ModelName == "" {
+				continue
+			}
+			otherMap, err := common.StrToMap(log.Other)
+			if err != nil {
+				continue
+			}
+			isMapped, _ := otherMap["is_model_mapped"].(bool)
+			upstreamName, _ := otherMap["upstream_model_name"].(string)
+			if !isMapped || upstreamName == "" {
+				continue
+			}
+			if resolved, ok := aliasToUpstream[log.ModelName]; ok && resolved != upstreamName {
+				ambiguousAliases.Add(log.ModelName)
+			}
+			aliasToUpstream[log.ModelName] = upstreamName
+		}
+	}
+
 	for _, log := range logs {
 		var otherMap map[string]interface{}
 		if log.Other != "" {
@@ -998,6 +1026,12 @@ func GetModelRequestStatuses(startTimestamp, endTimestamp int64, username string
 			upstreamName, _ := otherMap["upstream_model_name"].(string)
 			if isMapped && upstreamName != "" {
 				key = upstreamName
+			} else if !isMapped && !ambiguousAliases.Contains(log.ModelName) {
+				if isMiddleware, _ := otherMap["middleware_error"].(bool); isMiddleware {
+					if resolved, ok := aliasToUpstream[log.ModelName]; ok {
+						key = resolved
+					}
+				}
 			}
 		}
 		if key == "" {

@@ -84,7 +84,7 @@ describe('model status map', () => {
     }
   })
 
-  it('keeps newest-first requests in chronological order with the newest on the right', () => {
+  it('keeps newest-first order so the newest request stays on the left', () => {
     const cells = buildGridCells(
       [
         makeResult({ status: 'success', created_at: 300 }),
@@ -93,17 +93,15 @@ describe('model status map', () => {
       ],
       3
     )
-    expect(cells.map((cell) => cell.result?.created_at)).toEqual([
-      100, 200, 300,
-    ])
+    expect(cells.map((cell) => cell.result?.created_at)).toEqual([300, 200, 100])
     expect(cells.map((cell) => cell.result?.status)).toEqual([
-      'quota',
-      'rate_limit',
       'success',
+      'rate_limit',
+      'quota',
     ])
   })
 
-  it('pads short rows with no-data cells on the left so the newest stays rightmost', () => {
+  it('pads short rows with no-data cells on the right so the newest stays leftmost', () => {
     const cells = buildGridCells(
       [
         makeResult({ status: 'success', created_at: 300 }),
@@ -113,11 +111,11 @@ describe('model status map', () => {
     )
     expect(cells).toHaveLength(5)
     expect(cells.map((cell) => cell.result)).toEqual([
-      null,
-      null,
-      null,
-      expect.objectContaining({ status: 'rate_limit', created_at: 200 }),
       expect.objectContaining({ status: 'success', created_at: 300 }),
+      expect.objectContaining({ status: 'rate_limit', created_at: 200 }),
+      null,
+      null,
+      null,
     ])
   })
 
@@ -129,7 +127,7 @@ describe('model status map', () => {
       4
     )
     expect(cells).toHaveLength(4)
-    expect(cells.map((cell) => cell.result?.created_at)).toEqual([3, 4, 5, 6])
+    expect(cells.map((cell) => cell.result?.created_at)).toEqual([6, 5, 4, 3])
   })
 
   it('renders an all-empty row when there are no requests', () => {

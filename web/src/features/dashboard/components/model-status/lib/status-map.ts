@@ -62,22 +62,22 @@ export interface GridCell {
 /**
  * Build the cells for one model row.
  *
- * The API returns `requests` newest-first; the grid renders oldest → newest
- * (newest at the far right). Sparse rows are padded on the left with "no data"
- * cells so the newest request of every model stays in the rightmost column.
+ * The API returns `requests` newest-first; the grid renders newest → oldest
+ * (newest at the far left). Sparse rows are padded on the right with "no data"
+ * cells so the newest request of every model stays in the leftmost column.
  */
 export function buildGridCells(
   requests: ModelRequestResult[],
   limit: number
 ): GridCell[] {
-  const chronological = [...requests].reverse().slice(-limit)
-  const missing = Math.max(0, limit - chronological.length)
-  const cells: GridCell[] = []
+  const recent = [...requests].slice(0, limit)
+  const cells: GridCell[] = recent.map((result, index) => ({
+    id: `request-${index}`,
+    result,
+  }))
+  const missing = Math.max(0, limit - recent.length)
   for (let index = 0; index < missing; index++) {
     cells.push({ id: `no-data-${index}`, result: null })
   }
-  chronological.forEach((result, index) => {
-    cells.push({ id: `request-${index}`, result })
-  })
   return cells
 }
