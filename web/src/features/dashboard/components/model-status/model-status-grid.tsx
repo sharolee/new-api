@@ -136,6 +136,11 @@ function RequestTooltipContent(props: {
             .join(' ')}
         </div>
       )}
+      {props.result.end_reason && (
+        <div className='text-muted-foreground font-mono text-xs break-all'>
+          {t('End reason')}: {props.result.end_reason}
+        </div>
+      )}
       {props.result.content && (
         <div className='text-muted-foreground line-clamp-2 break-words'>
           {props.result.content}
@@ -158,10 +163,22 @@ function ModelStatusRow(props: {
       className='flex items-center gap-2 px-2 py-1.5 sm:gap-2.5'
       data-slot='model-status-row'
     >
-      <div className='w-36 shrink-0 sm:w-44' title={props.row.model}>
+      <div
+        className='flex w-36 shrink-0 items-center gap-1 sm:w-44'
+        title={props.row.model}
+      >
         <span className='text-muted-foreground block truncate font-mono text-xs font-medium'>
           {props.row.model}
         </span>
+        {props.row.client_gone_count > 0 && (
+          <span
+            aria-label={`${t('Stream lost')}: ${props.row.client_gone_count}`}
+            className='bg-chart-1/15 text-chart-1 shrink-0 rounded px-1 font-mono text-[10px] leading-4'
+            title={`${t('Stream lost')}: ${props.row.client_gone_count}`}
+          >
+            {props.row.client_gone_count}
+          </span>
+        )}
       </div>
       <div className='flex gap-1 sm:gap-1.5'>
         {cells.map((cell) => {

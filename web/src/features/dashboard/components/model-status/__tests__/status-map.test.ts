@@ -40,6 +40,7 @@ function makeResult(
   return {
     channel_id: 1,
     channel_name: 'channel-a',
+    end_reason: '',
     error_category: '',
     error_code: '',
     content: '',
@@ -52,6 +53,10 @@ describe('model status map', () => {
     expect(MODEL_STATUS_META.success).toEqual({
       labelKey: 'Normal',
       dotClass: dotColorMap.success,
+    })
+    expect(MODEL_STATUS_META.client_gone).toEqual({
+      labelKey: 'Stream lost',
+      dotClass: dotColorMap.blue,
     })
     expect(MODEL_STATUS_META.rate_limit).toEqual({
       labelKey: 'Rate limit',
@@ -71,9 +76,10 @@ describe('model status map', () => {
     })
   })
 
-  it('exposes the five statuses in legend order through getModelStatusMeta', () => {
+  it('exposes the six statuses in legend order through getModelStatusMeta', () => {
     expect(MODEL_STATUS_ORDER).toEqual([
       'success',
+      'client_gone',
       'rate_limit',
       'quota',
       'unavailable',
@@ -82,6 +88,29 @@ describe('model status map', () => {
     for (const status of MODEL_STATUS_ORDER) {
       expect(getModelStatusMeta(status)).toBe(MODEL_STATUS_META[status])
     }
+  })
+
+  it('keeps the stream end reason on the lost cell so the tooltip can explain it', () => {
+    const cells = buildGridCells(
+      [
+        makeResult({
+          status: 'client_gone',
+          created_at: 300,
+          end_reason: 'client_gone',
+        }),
+        makeResult({ status: 'success', created_at: 200 }),
+      ],
+      2
+    )
+    expect(cells[0].result).toEqual(
+      expect.objectContaining({
+        status: 'client_gone',
+        end_reason: 'client_gone',
+      })
+    )
+    expect(cells[1].result).toEqual(
+      expect.objectContaining({ status: 'success', end_reason: '' })
+    )
   })
 
   it('keeps newest-first order so the newest request stays on the left', () => {

@@ -32,6 +32,7 @@ export interface ModelStatusMeta {
 /** Status → label key + semantic color mapping for the status grid. */
 export const MODEL_STATUS_META: Record<ModelRequestStatus, ModelStatusMeta> = {
   success: { labelKey: 'Normal', dotClass: dotColorMap.success },
+  client_gone: { labelKey: 'Stream lost', dotClass: dotColorMap.blue },
   rate_limit: { labelKey: 'Rate limit', dotClass: dotColorMap.warning },
   quota: { labelKey: 'Insufficient quota', dotClass: dotColorMap.purple },
   unavailable: { labelKey: 'Unavailable', dotClass: dotColorMap.danger },
@@ -41,6 +42,7 @@ export const MODEL_STATUS_META: Record<ModelRequestStatus, ModelStatusMeta> = {
 /** Legend / iteration order for every supported status. */
 export const MODEL_STATUS_ORDER: ModelRequestStatus[] = [
   'success',
+  'client_gone',
   'rate_limit',
   'quota',
   'unavailable',

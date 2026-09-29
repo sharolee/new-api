@@ -334,6 +334,121 @@ func TestGetModelRequestStatusesUpstreamMiddlewareResolution(t *testing.T) {
 	assert.Equal(t, 1, modelMap["orphan"].Total)
 }
 
+func TestGetModelRequestStatusesClientGone(t *testing.T) {
+	truncateTables(t)
+
+	now := int64(3600 * 1000)
+	streamOther := func(endReason string) string {
+		return common.MapToJsonStr(map[string]any{
+			"is_model_mapped": false,
+			"stream_status": map[string]any{
+				"status":     "error",
+				"end_reason": endReason,
+			},
+		})
+	}
+
+	// 1) 客户端断开 → client_gone
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeConsume,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "glm-5",
+		CreatedAt: now,
+		Content:   "user aborted",
+		ChannelId: 11,
+		Other:     streamOther("client_gone"),
+	}).Error)
+
+	// 2) 流式超时同样未交付结果 → client_gone
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeConsume,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "glm-5",
+		CreatedAt: now + 1,
+		Content:   "streaming timeout",
+		ChannelId: 11,
+		Other:     streamOther("timeout"),
+	}).Error)
+
+	// 3) 正常结束 → success
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeConsume,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "glm-5",
+		CreatedAt: now + 2,
+		Content:   "done",
+		ChannelId: 11,
+		Other:     streamOther("done"),
+	}).Error)
+
+	// 4) handler_stop 属于正常结束 → success
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeConsume,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "deepseek-v3",
+		CreatedAt: now,
+		Content:   "handler stopped",
+		ChannelId: 22,
+		Other:     streamOther("handler_stop"),
+	}).Error)
+
+	// 5) 非流式请求没有 stream_status → success
+	require.NoError(t, LOG_DB.Create(&Log{
+		Type:      LogTypeConsume,
+		UserId:    1,
+		Username:  "alice",
+		ModelName: "deepseek-v3",
+		CreatedAt: now + 1,
+		Content:   "non stream",
+		ChannelId: 22,
+		Other:     common.MapToJsonStr(map[string]any{"is_model_mapped": false}),
+	}).Error)
+
+	data, err := GetModelRequestStatuses(now, now+10, "", "model_name", 10, 1)
+	require.NoError(t, err)
+	modelMap := make(map[string]*ModelRequestStatus)
+	for i := range data {
+		modelMap[data[i].Model] = &data[i]
+	}
+
+	// glm-5: 最新 → 最旧为 done(success)、timeout、client_gone
+	require.Contains(t, modelMap, "glm-5")
+	glm5 := modelMap["glm-5"]
+	assert.Equal(t, 3, glm5.Total)
+	assert.Equal(t, 2, glm5.ClientGoneCount)
+	require.Len(t, glm5.Requests, 3)
+	assert.Equal(t, "success", glm5.Requests[0].Status)
+	assert.Empty(t, glm5.Requests[0].EndReason)
+	assert.Equal(t, "client_gone", glm5.Requests[1].Status)
+	assert.Equal(t, "timeout", glm5.Requests[1].EndReason)
+	assert.Equal(t, "client_gone", glm5.Requests[2].Status)
+	assert.Equal(t, "client_gone", glm5.Requests[2].EndReason)
+
+	// deepseek-v3: handler_stop 与非流式请求都算成功
+	require.Contains(t, modelMap, "deepseek-v3")
+	deepseek := modelMap["deepseek-v3"]
+	assert.Equal(t, 0, deepseek.ClientGoneCount)
+	require.Len(t, deepseek.Requests, 2)
+	assert.Equal(t, "success", deepseek.Requests[0].Status)
+	assert.Equal(t, "success", deepseek.Requests[1].Status)
+
+	// limit 截断只影响格点，丢失计数覆盖窗口内全部请求
+	truncated, err := GetModelRequestStatuses(now, now+10, "", "model_name", 1, 1)
+	require.NoError(t, err)
+	require.Len(t, truncated, 2)
+	truncatedMap := make(map[string]*ModelRequestStatus, len(truncated))
+	for i := range truncated {
+		truncatedMap[truncated[i].Model] = &truncated[i]
+		assert.Len(t, truncated[i].Requests, 1)
+	}
+	assert.Equal(t, 2, truncatedMap["glm-5"].ClientGoneCount)
+	assert.Equal(t, 0, truncatedMap["deepseek-v3"].ClientGoneCount)
+}
+
 func TestGetModelRequestStatusesContentTruncation(t *testing.T) {
 	truncateTables(t)
 

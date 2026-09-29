@@ -126,6 +126,7 @@ export type ErrorAnalysisChartTab = 'channel' | 'error' | 'trend'
 
 export type ModelRequestStatus =
   | 'success'
+  | 'client_gone'
   | 'rate_limit'
   | 'quota'
   | 'unavailable'
@@ -133,6 +134,8 @@ export type ModelRequestStatus =
 
 export interface ModelRequestResult {
   status: ModelRequestStatus
+  /** Stream end reason when the response was not delivered (client_gone status). */
+  end_reason: string
   created_at: number
   channel_id: number
   channel_name: string
@@ -144,5 +147,7 @@ export interface ModelRequestResult {
 export interface ModelRequestRow {
   model: string
   total: number
+  /** Requests in the whole window whose stream never delivered, beyond the cell limit. */
+  client_gone_count: number
   requests: ModelRequestResult[]
 }

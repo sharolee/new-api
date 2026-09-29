@@ -928,7 +928,8 @@ func GetErrorLogStats(startTimestamp, endTimestamp int64, username, modelName, g
 
 // ModelRequestResult 表示某个模型下的一条最近请求状态格点。
 type ModelRequestResult struct {
-	Status        string `json:"status"` // success | rate_limit | quota | unavailable | other_error
+	Status        string `json:"status"` // success | client_gone | rate_limit | quota | unavailable | other_error
+	EndReason     string `json:"end_reason"`
 	CreatedAt     int64  `json:"created_at"`
 	ChannelId     int    `json:"channel_id"`
 	ChannelName   string `json:"channel_name"`
@@ -939,9 +940,35 @@ type ModelRequestResult struct {
 
 // ModelRequestStatus 按聚合键（请求模型或上游模型）分组的最近请求状态。
 type ModelRequestStatus struct {
-	Model    string               `json:"model"`
-	Total    int                  `json:"total"`
-	Requests []ModelRequestResult `json:"requests"`
+	Model           string               `json:"model"`
+	Total           int                  `json:"total"`
+	ClientGoneCount int                  `json:"client_gone_count"`
+	Requests        []ModelRequestResult `json:"requests"`
+}
+
+// streamEndReasonsWithoutDelivery 是流式响应已建立但未把结果交付给客户端的结束原因集合，
+// 与 relay 侧 StreamEndReason 的非正常结束保持一致；这里不引用 relay 包，因为 relay/common 依赖 model。
+// 其余结束原因（done、eof、handler_stop）视为已正常交付。
+var streamEndReasonsWithoutDelivery = map[string]struct{}{
+	"client_gone":   {},
+	"timeout":       {},
+	"scanner_error": {},
+	"ping_fail":     {},
+	"panic":         {},
+}
+
+// clientGoneEndReason 从消费日志的 Other.stream_status 中读取流式结束原因，
+// 仅当该原因表示结果未交付时返回非空值，供格点状态与丢失计数使用。
+func clientGoneEndReason(otherMap map[string]any) string {
+	streamStatus, ok := otherMap["stream_status"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	endReason, _ := streamStatus["end_reason"].(string)
+	if _, lost := streamEndReasonsWithoutDelivery[endReason]; !lost {
+		return ""
+	}
+	return endReason
 }
 
 const modelStatusContentLimit = 200
@@ -1044,6 +1071,13 @@ func GetModelRequestStatuses(startTimestamp, endTimestamp int64, username string
 			grouped[key] = group
 		}
 		group.Total++
+		endReason := ""
+		if log.Type == LogTypeConsume {
+			endReason = clientGoneEndReason(otherMap)
+			if endReason != "" {
+				group.ClientGoneCount++
+			}
+		}
 		if len(group.Requests) >= limit {
 			continue
 		}
@@ -1053,7 +1087,12 @@ func GetModelRequestStatuses(startTimestamp, endTimestamp int64, username string
 			ChannelId: log.ChannelId,
 		}
 		if log.Type == LogTypeConsume {
-			result.Status = "success"
+			if endReason != "" {
+				result.Status = "client_gone"
+				result.EndReason = endReason
+			} else {
+				result.Status = "success"
+			}
 		} else {
 			category := common.CategorizeErrorLogFromOther(otherMap)
 			result.ErrorCategory = category

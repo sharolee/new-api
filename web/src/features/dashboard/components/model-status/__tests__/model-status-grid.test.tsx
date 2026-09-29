@@ -30,10 +30,12 @@ import { ModelStatusGrid } from '../model-status-grid'
 const fixtureRows: ModelRequestRow[] = [
   {
     model: 'gpt-4o',
-    total: 3,
+    total: 4,
+    client_gone_count: 1,
     requests: [
       {
         status: 'success',
+        end_reason: '',
         created_at: 1_760_000_100,
         channel_id: 3,
         channel_name: 'OpenAI Main',
@@ -42,7 +44,18 @@ const fixtureRows: ModelRequestRow[] = [
         content: '',
       },
       {
+        status: 'client_gone',
+        end_reason: 'client_gone',
+        created_at: 1_760_000_050,
+        channel_id: 3,
+        channel_name: 'OpenAI Main',
+        error_category: '',
+        error_code: '',
+        content: 'user aborted the request',
+      },
+      {
         status: 'rate_limit',
+        end_reason: '',
         created_at: 1_760_000_000,
         channel_id: 3,
         channel_name: 'OpenAI Main',
@@ -52,6 +65,7 @@ const fixtureRows: ModelRequestRow[] = [
       },
       {
         status: 'unavailable',
+        end_reason: '',
         created_at: 1_759_999_900,
         channel_id: 5,
         channel_name: 'Anthropic US',
@@ -64,9 +78,11 @@ const fixtureRows: ModelRequestRow[] = [
   {
     model: 'claude-3-5-sonnet',
     total: 2,
+    client_gone_count: 0,
     requests: [
       {
         status: 'quota',
+        end_reason: '',
         created_at: 1_760_000_200,
         channel_id: 5,
         channel_name: 'Anthropic US',
@@ -76,6 +92,7 @@ const fixtureRows: ModelRequestRow[] = [
       },
       {
         status: 'other_error',
+        end_reason: '',
         created_at: 1_759_999_800,
         channel_id: 5,
         channel_name: 'Anthropic US',
@@ -134,6 +151,7 @@ describe('ModelStatusGrid', () => {
     expect(screen.getByText('Recent requests')).toBeVisible()
     for (const label of [
       'Normal',
+      'Stream lost',
       'Rate limit',
       'Insufficient quota',
       'Unavailable',
@@ -150,10 +168,11 @@ describe('ModelStatusGrid', () => {
       gptRow?.querySelectorAll('[data-status]') ?? [],
       (cell) => cell.getAttribute('data-status')
     )
-    // Default limit 20: 3 requests newest → oldest, then 17 no-data pads.
+    // Default limit 20: 4 requests newest → oldest, then 16 no-data pads.
     expect(gptStatuses).toHaveLength(20)
-    expect(gptStatuses.slice(0, 3)).toEqual([
+    expect(gptStatuses.slice(0, 4)).toEqual([
       'success',
+      'client_gone',
       'rate_limit',
       'unavailable',
     ])
@@ -164,11 +183,35 @@ describe('ModelStatusGrid', () => {
 
     await screen.findByText('gpt-4o')
     expect(screen.getByLabelText(/^gpt-4o Normal /)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^gpt-4o Stream lost /)).toBeInTheDocument()
     expect(screen.getByLabelText(/^gpt-4o Unavailable /)).toBeInTheDocument()
     // claude-3-5-sonnet has 2 requests → 18 no-data cells.
     const emptyCells = screen.getAllByLabelText('claude-3-5-sonnet No data')
     expect(emptyCells).toHaveLength(18)
     expect(emptyCells[0]).toHaveClass('border-border/60', 'bg-transparent')
+  })
+
+  it('marks the lost-stream total next to the model name and omits it when zero', async () => {
+    renderGrid()
+
+    await screen.findByText('gpt-4o')
+    const chip = screen.getByLabelText('Stream lost: 1')
+    expect(chip).toHaveTextContent('1')
+    expect(chip).toHaveClass('text-chart-1')
+    expect(
+      screen.queryByLabelText('Stream lost: 0')
+    ).not.toBeInTheDocument()
+  })
+
+  it('explains a lost stream with its end reason in the tooltip', async () => {
+    const user = userEvent.setup()
+    renderGrid()
+    await screen.findByText('gpt-4o')
+
+    const lostCell = screen.getByLabelText(/^gpt-4o Stream lost /)
+    await user.hover(lostCell)
+    expect(await screen.findByText('End reason: client_gone')).toBeVisible()
+    expect(screen.getByText('user aborted the request')).toBeVisible()
   })
 
   it('shows the empty state when the API returns no rows', async () => {
