@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,8 +14,13 @@ import (
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 func pricingUsagePluginSource(version, usageSchema string) string {
@@ -28,6 +34,15 @@ export function parseSubmitResponse() { return {}; }
 export function buildQueryRequest() { return {}; }
 export function parseTaskResult() { return {}; }
 `, version, usageSchema)
+}
+
+// pricingPassthroughPluginSource derives a passthrough probe from the shared
+// fixture so each probe declares a distinct model, which a shared declaration
+// would reject as a conflict.
+func pricingPassthroughPluginSource(key, declared, version, usageSchema string) string {
+	source := strings.ReplaceAll(pricingUsagePluginSource(version, usageSchema), "pricing-usage-probe", key)
+	source = strings.Replace(source, `models: ["pricing-usage-model"]`, fmt.Sprintf(`models: [%q]`, declared), 1)
+	return strings.Replace(source, `fetchMode: "per_task"`, `fetchMode: "per_task", modelPassthrough: true`, 1)
 }
 
 func TestPricingCarriesTaskUsageSchemaAndRefreshesWithPluginGeneration(t *testing.T) {
@@ -296,4 +311,130 @@ func TestPricingSharedPluginVariantsUseEachSchemaAndExpression(t *testing.T) {
 	encoded, err := common.Marshal(single)
 	require.NoError(t, err)
 	assert.Contains(t, string(encoded), "billing_plugin_variants")
+}
+
+func TestPricingPassthroughClaimStaysScopedToItsChannel(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	const (
+		primaryKey   = "pricing-passthrough-probe"
+		secondaryKey = "pricing-passthrough-other"
+		declared     = primaryKey + "-declared"
+	)
+	schema := `{images:{type:"number",unit:"count",description:"Image generation unit price"}}`
+	for _, key := range []string{primaryKey, secondaryKey} {
+		_, err := jsplugin.DefaultRegistry.Register(pricingPassthroughPluginSource(key, key+"-declared", "1.0.0", schema), jsplugin.Options{})
+		require.NoError(t, err)
+		t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(key) })
+	}
+
+	primarySetting := `{"task_plugin_key":"` + primaryKey + `"}`
+	secondarySetting := `{"task_plugin_key":"` + secondaryKey + `"}`
+	channels := []Channel{
+		{Id: 940, Type: constant.ChannelTypeTaskPlugin, Key: "key-940", Status: common.ChannelStatusEnabled, Name: "passthrough", Models: declared + ",passthrough-claimed,passthrough-ambiguous", Setting: &primarySetting},
+		{Id: 941, Type: constant.ChannelTypeOpenAI, Key: "key-941", Status: common.ChannelStatusEnabled, Name: "ordinary", Models: "ordinary-model"},
+		{Id: 942, Type: constant.ChannelTypeTaskPlugin, Key: "key-942", Status: common.ChannelStatusManuallyDisabled, Name: "disabled", Models: "passthrough-disabled", Setting: &primarySetting},
+		{Id: 943, Type: constant.ChannelTypeTaskPlugin, Key: "key-943", Status: common.ChannelStatusEnabled, Name: "ambiguous", Models: "passthrough-ambiguous", Setting: &secondarySetting},
+	}
+	for i := range channels {
+		require.NoError(t, DB.Create(&channels[i]).Error)
+	}
+	for _, ability := range []struct {
+		channelID int
+		model     string
+	}{
+		{940, declared},
+		{940, "passthrough-claimed"},
+		{940, "passthrough-ambiguous"},
+		{941, "ordinary-model"},
+		{942, "passthrough-disabled"},
+		{943, "passthrough-ambiguous"},
+	} {
+		insertPricingEndpointAbility(t, ability.channelID, ability.model)
+	}
+	rebuildTaskAliasView()
+	InitChannelCache()
+
+	generation := jsplugin.DefaultRegistry.Generation()
+	require.NotEmpty(t, billingPluginsFor(generation, declared))
+	require.NotEmpty(t, billingPluginsFor(generation, "passthrough-claimed"))
+	// An unclaimed ordinary model, a disabled passthrough channel, and a model
+	// two passthrough plugins both claim must keep built-in billing instead of
+	// inheriting a plugin's usage schema.
+	assert.Empty(t, billingPluginsFor(generation, "ordinary-model"))
+	assert.Empty(t, billingPluginsFor(generation, "passthrough-disabled"))
+	assert.Empty(t, billingPluginsFor(generation, "passthrough-ambiguous"))
+
+	pricing := pricingByModel(GetPricing())
+	assert.Equal(t, "count", pricing[declared].BillingUsageSchema["images"].Unit)
+	assert.Equal(t, "count", pricing["passthrough-claimed"].BillingUsageSchema["images"].Unit)
+	assert.Nil(t, pricing["ordinary-model"].BillingUsageSchema)
+}
+
+func TestTaskPassthroughClaimDatabaseMatrix(t *testing.T) {
+	const (
+		primaryKey   = "matrix-passthrough-probe"
+		secondaryKey = "matrix-passthrough-other"
+		declared     = primaryKey + "-declared"
+	)
+	usageSchema := `{images:{type:"number",unit:"count",description:"Image generation unit price"}}`
+	for _, key := range []string{primaryKey, secondaryKey} {
+		_, err := jsplugin.DefaultRegistry.Register(pricingPassthroughPluginSource(key, key+"-declared", "1.0.0", usageSchema), jsplugin.Options{})
+		require.NoError(t, err)
+		t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(key) })
+	}
+	primarySetting := `{"task_plugin_key":"` + primaryKey + `"}`
+	secondarySetting := `{"task_plugin_key":"` + secondaryKey + `"}`
+
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var driver gorm.Dialector
+			switch dialect {
+			case "sqlite":
+				driver = sqlite.Open(":memory:")
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_DSN")
+				if dsn == "" {
+					t.Skip("TEST_MYSQL_DSN not configured")
+				}
+				driver = mysql.Open(dsn)
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_DSN not configured")
+				}
+				driver = postgres.Open(dsn)
+			}
+			db, err := gorm.Open(driver, &gorm.Config{NamingStrategy: schema.NamingStrategy{TablePrefix: "passthrough_test_"}})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			previousDB, previousType := DB, common.MainDatabaseType()
+			DB = db
+			common.SetMainDatabaseType(common.DatabaseType(dialect))
+			t.Cleanup(func() {
+				require.NoError(t, db.Migrator().DropTable(&Channel{}))
+				DB = previousDB
+				common.SetMainDatabaseType(previousType)
+			})
+			require.NoError(t, db.AutoMigrate(&Channel{}))
+
+			for _, channel := range []Channel{
+				{Id: 1, Type: constant.ChannelTypeTaskPlugin, Key: "key-1", Status: common.ChannelStatusEnabled, Name: "passthrough", Models: declared + ",passthrough-claimed,passthrough-ambiguous", Setting: &primarySetting},
+				{Id: 2, Type: constant.ChannelTypeOpenAI, Key: "key-2", Status: common.ChannelStatusEnabled, Name: "ordinary", Models: "ordinary-model"},
+				{Id: 3, Type: constant.ChannelTypeTaskPlugin, Key: "key-3", Status: common.ChannelStatusManuallyDisabled, Name: "disabled", Models: "passthrough-disabled", Setting: &primarySetting},
+				{Id: 4, Type: constant.ChannelTypeTaskPlugin, Key: "key-4", Status: common.ChannelStatusEnabled, Name: "ambiguous", Models: "passthrough-ambiguous", Setting: &secondarySetting},
+			} {
+				require.NoError(t, db.Create(&channel).Error)
+			}
+
+			rebuildTaskAliasView()
+			generation := jsplugin.DefaultRegistry.Generation()
+			require.NotEmpty(t, billingPluginsFor(generation, declared))
+			require.NotEmpty(t, billingPluginsFor(generation, "passthrough-claimed"))
+			assert.Empty(t, billingPluginsFor(generation, "ordinary-model"))
+			assert.Empty(t, billingPluginsFor(generation, "passthrough-disabled"))
+			assert.Empty(t, billingPluginsFor(generation, "passthrough-ambiguous"))
+		})
+	}
 }

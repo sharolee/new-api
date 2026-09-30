@@ -59,17 +59,98 @@ export interface FlowBuildOptions {
   selectedNodes?: FlowNodeFilter[]
   activeNode?: FlowNodeFilter
   activeLink?: FlowLinkSelection
+  colorPalette?: readonly string[]
+  deletedTokenLabel?: (tokenId: number) => string
+  visibleStages?: FlowNodeKind[]
+  topNodeLimit?: number
+  overflowMode?: FlowOverflowMode
+  otherNodeLabel?: (kind: FlowNodeKind) => string
+  maskSensitive?: boolean
+}
+
+export interface DashboardFlowNode {
+  id: string
+  label: string
+  kind: FlowNodeKind
+  value: number
+  requests: number
+  quota: number
+  tokens: number
+  color: string
+  colorKey: string
+  highlighted?: boolean
+  dimmed?: boolean
+}
+
+export interface DashboardFlowLink {
+  source: string
+  target: string
+  value: number
+  requests: number
+  quota: number
+  tokens: number
+  sourceLabel: string
+  targetLabel: string
+  color: string
+  linkColor: string
+  linkAlpha: number
+  hoverColor: string
+  colorKey: string
+  share: number
+  highlighted?: boolean
+  dimmed?: boolean
+}
+
+export interface DashboardFlowGraph {
+  nodes: DashboardFlowNode[]
+  links: DashboardFlowLink[]
+}
+
+export interface FlowSummary {
+  quota: number
+  tokens: number
+  requests: number
+}
+
+export interface FlowUserFilterOption {
+  value: string
+  label: string
+  valueLabel: string
+  valueRaw: number
+  color: string
+}
+
+export interface FlowNodeFilterOption {
+  kind: FlowNodeKind
+  value: string
+  label: string
+  valueLabel: string
+  valueRaw: number
+  color: string
+}
+
+export interface FlowFilterOptions {
+  users: FlowUserFilterOption[]
+  nodes: FlowNodeFilterOption[]
+}
+
+export interface ProcessedFlowData {
+  summary: FlowSummary
+  flow: DashboardFlowGraph
+  filterOptions: FlowFilterOptions
 }
 
 export type DashboardFilters = {
-  start_timestamp?: number
-  end_timestamp?: number
+  start_timestamp?: Date
+  end_timestamp?: Date
   time_granularity?: TimeGranularity
   username?: string
 }
 
+export type ConsumptionDistributionChartType = 'bar' | 'area'
+
 export type DashboardChartPreferences = {
-  consumptionDistributionChart: 'bar' | 'area'
+  consumptionDistributionChart: ConsumptionDistributionChartType
   modelAnalyticsChart: ModelAnalyticsChartTab
   defaultTimeRangeDays: number
   defaultTimeGranularity: TimeGranularity
@@ -150,4 +231,16 @@ export interface ModelRequestRow {
   /** Requests in the whole window whose stream never delivered, beyond the cell limit. */
   client_gone_count: number
   requests: ModelRequestResult[]
+}
+
+export interface UptimeMonitor {
+  name: string
+  status: number
+  group?: string
+  uptime?: number
+}
+
+export interface UptimeGroupResult {
+  categoryName: string
+  monitors?: UptimeMonitor[]
 }

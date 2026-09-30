@@ -43,10 +43,15 @@ const CHART_SPEC_KEYS: Record<
   trend: 'spec_trend_line',
 }
 
+function toUnixSeconds(value: number | Date | undefined): number {
+  if (!value) return 0
+  return value instanceof Date ? Math.floor(value.getTime() / 1000) : value
+}
+
 interface ErrorAnalysisChartProps {
   filters?: {
-    start_timestamp?: number
-    end_timestamp?: number
+    start_timestamp?: number | Date
+    end_timestamp?: number | Date
     time_granularity?: TimeGranularity
     username?: string
     model_name?: string
@@ -90,8 +95,8 @@ export function ErrorAnalysisChart(props: ErrorAnalysisChartProps) {
     try {
       const result = await getErrorLogStats(
         {
-          start_timestamp: props.filters?.start_timestamp || 0,
-          end_timestamp: props.filters?.end_timestamp || 0,
+          start_timestamp: toUnixSeconds(props.filters?.start_timestamp),
+          end_timestamp: toUnixSeconds(props.filters?.end_timestamp),
           granularity: timeGranularity,
           username: props.filters?.username || undefined,
           model_name: props.filters?.model_name || undefined,

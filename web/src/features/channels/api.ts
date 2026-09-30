@@ -74,6 +74,8 @@ export type TaskPluginOption = {
   models: string[]
   channelTypes?: number[] | null
   upstreams?: string[] | null
+  /** Plugin claims undeclared model names through the channel's model mapping. */
+  modelPassthrough?: boolean
 }
 
 export async function getTaskPluginOptions(): Promise<TaskPluginOption[]> {

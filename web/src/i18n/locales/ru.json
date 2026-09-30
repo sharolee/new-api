@@ -5899,6 +5899,7 @@
     "Theme Settings": "Настройки темы",
     "There are both add and remove models pending, but you only selected one type. Confirm submitting only the selected items?": "Есть модели для добавления и удаления, но вы выбрали только один тип. Подтвердить отправку только выбранных элементов?",
     "There is a rule for vip billed as premium → use its ratio 0.3": "Есть правило «vip по premium» → используется его коэффициент 0,3",
+    "These models are already provided by other task plugins, so this mapping is not used for them and requests go to the owning plugin: {{models}}": "Эти модели уже предоставляются другими плагинами задач, поэтому это сопоставление не используется и запросы направляются плагину, который их предоставляет: {{models}}",
     "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.": "Эти имена всё ещё отмечены в выборе, но не возвращены в списке upstream; ключи только как источники model_mapping исключены. Скорректируйте выбор перед сохранением.",
     "These models were not returned by the upstream. Uncheck to remove them, or select them again before saving. Model mapping source aliases are excluded.": "Эти модели не были возвращены вышестоящим сервисом. Снимите флажки, чтобы удалить их, или выберите их снова перед сохранением. Исходные псевдонимы сопоставления моделей исключены.",
     "These plugins use this channel's connection settings.": "Эти плагины используют настройки подключения этого канала.",

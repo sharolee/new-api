@@ -380,10 +380,14 @@ type RoutingGeneration struct {
 	byChannelType        map[int]*LoadedPlugin
 	routeIndex           map[string]RouteBinding
 	protocolIndex        map[string][]ProtocolBinding
-	plugins              []*LoadedPlugin
-	routes               []RouteBinding
-	runtime              http.Handler
-	retainCurrent        map[string]struct{}
+	// passthroughProtocolIndex keys a passthrough plugin's unnarrowed protocol
+	// claims by plugin key instead of model. The host only reads it after its own
+	// channel-scoped claim, so it cannot hijack an unrelated undeclared model.
+	passthroughProtocolIndex map[string][]ProtocolBinding
+	plugins                  []*LoadedPlugin
+	routes                   []RouteBinding
+	runtime                  http.Handler
+	retainCurrent            map[string]struct{}
 }
 
 var (
@@ -538,6 +542,22 @@ func (g *RoutingGeneration) LookupEndpointCandidates(method, path, model string)
 		return nil
 	}
 	bindings := g.protocolIndex[endpointIndexKey(normalizedMethod, path, model)]
+	return append([]ProtocolBinding(nil), bindings...)
+}
+
+// LookupPassthroughEndpoint returns the protocol bindings a passthrough plugin
+// would serve for a model outside its declared meta.models. It is deliberately
+// keyed by plugin: the host must already hold a channel-scoped claim for that
+// plugin, so an unrelated undeclared model never reaches a passthrough plugin.
+func (g *RoutingGeneration) LookupPassthroughEndpoint(method, path, pluginKey string) []ProtocolBinding {
+	if g == nil || pluginKey == "" {
+		return nil
+	}
+	normalizedMethod, err := normalizeRouteMethod(method)
+	if err != nil {
+		return nil
+	}
+	bindings := g.passthroughProtocolIndex[endpointIndexKey(normalizedMethod, path, pluginKey)]
 	return append([]ProtocolBinding(nil), bindings...)
 }
 
@@ -930,7 +950,10 @@ func buildRoutingGenerationFromPlugins(effective map[string]*LoadedPlugin, numbe
 		byChannelType:        make(map[int]*LoadedPlugin),
 		routeIndex:           make(map[string]RouteBinding),
 		protocolIndex:        make(map[string][]ProtocolBinding),
-		plugins:              make([]*LoadedPlugin, 0, len(effective)),
+
+		passthroughProtocolIndex: make(map[string][]ProtocolBinding),
+
+		plugins: make([]*LoadedPlugin, 0, len(effective)),
 	}
 	for _, key := range keys {
 		plugin := effective[key]
@@ -1000,6 +1023,25 @@ func buildRoutingGenerationFromPlugins(effective map[string]*LoadedPlugin, numbe
 							}
 						}
 						generation.protocolIndex[indexKey] = append(bindings, ProtocolBinding{Plugin: plugin, Protocol: claim.Name, Operation: operation, Model: model})
+					}
+				}
+			}
+			// A passthrough plugin also binds an unnarrowed claim for models
+			// outside meta.models. A claim that narrows with meta.models keeps
+			// declaring only those models, so it is not rebound here. The host
+			// consults this index only after its own channel-scoped claim, so the
+			// entry cannot hijack an unrelated undeclared model.
+			if plugin.Meta.ModelPassthrough && len(claim.Models) == 0 {
+				for _, operation := range definition.Operations {
+					if operation.ModelField == "" {
+						continue
+					}
+					for _, method := range operation.Methods {
+						indexKey := endpointIndexKey(method, operation.Path, plugin.Meta.Key)
+						generation.passthroughProtocolIndex[indexKey] = append(
+							generation.passthroughProtocolIndex[indexKey],
+							ProtocolBinding{Plugin: plugin, Protocol: claim.Name, Operation: operation},
+						)
 					}
 				}
 			}

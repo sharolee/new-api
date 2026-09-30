@@ -105,6 +105,59 @@ export function deriveModelMappingPairs(
 }
 
 /**
+ * Minimal task-plugin shape needed to decide whether a channel can claim a
+ * model name. `modelPassthrough` marks plugins that claim undeclared names
+ * through the channel's `model_mapping`.
+ */
+export type PassthroughModelOwner = {
+  key: string
+  models: readonly string[]
+  modelPassthrough?: boolean
+}
+
+/**
+ * Finds mapping source names that this channel can never claim because a
+ * plugin it does not bind already declares them as a built-in model. The
+ * backend routes such names straight to the declaring plugin, so the mapping
+ * entry never receives traffic.
+ *
+ * Returns an empty list unless the channel binds a passthrough plugin: for
+ * every other channel type `model_mapping` is an ordinary remap with no
+ * competing claim. Names declared by a plugin the channel does bind are also
+ * accepted, since those are served by this channel.
+ */
+export function findPluginOwnedMappingSources(
+  sources: readonly string[],
+  plugins: readonly PassthroughModelOwner[],
+  boundPluginKeys: readonly string[]
+): string[] {
+  const bound = new Set(boundPluginKeys)
+  const claimsPassthrough = plugins.some(
+    (plugin) => plugin.modelPassthrough === true && bound.has(plugin.key)
+  )
+  if (!claimsPassthrough) return []
+
+  const ownedByOthers = new Set<string>()
+  for (const plugin of plugins) {
+    if (bound.has(plugin.key)) continue
+    for (const model of plugin.models) {
+      const name = model.trim()
+      if (name) ownedByOthers.add(name)
+    }
+  }
+
+  const conflicts: string[] = []
+  const seen = new Set<string>()
+  for (const source of sources) {
+    const name = source.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    if (ownedByOthers.has(name)) conflicts.push(name)
+  }
+  return conflicts
+}
+
+/**
  * Merges pairs into a model-mapping JSON document. Existing request names keep
  * their position and receive the new upstream name; new pairs are appended.
  * Returns `null` when the current document is not a valid mapping object.

@@ -20,6 +20,7 @@ import { describe, expect, test } from 'vitest'
 
 import {
   deriveModelMappingPairs,
+  findPluginOwnedMappingSources,
   mergeModelMappingPairs,
 } from '../model-mapping-rules'
 
@@ -124,5 +125,53 @@ describe('mergeModelMappingPairs', () => {
     expect(mergeModelMappingPairs('{"a":1}', [{ from: 'a', to: 'b' }])).toBe(
       null
     )
+  })
+})
+
+describe('findPluginOwnedMappingSources', () => {
+  const plugins = [
+    { key: 'modelscope', models: [], modelPassthrough: true },
+    { key: 'alibaba', models: ['z-image-turbo', 'qwen-max'] },
+    { key: 'openai', models: ['dall-e-3'] },
+  ]
+
+  test('flags mapping sources declared by a plugin the passthrough channel does not bind', () => {
+    expect(
+      findPluginOwnedMappingSources(
+        ['z-image-turbo', 'qwen-image-2.1', 'dall-e-3'],
+        plugins,
+        ['modelscope']
+      )
+    ).toEqual(['z-image-turbo', 'dall-e-3'])
+  })
+
+  test('returns an empty list when the bound plugin does not claim passthrough models', () => {
+    expect(
+      findPluginOwnedMappingSources(
+        ['z-image-turbo'],
+        [{ key: 'openai', models: ['dall-e-3'] }],
+        ['openai']
+      )
+    ).toEqual([])
+  })
+
+  test('accepts sources the bound plugin declares itself and dedupes trimmed names', () => {
+    expect(
+      findPluginOwnedMappingSources(
+        ['qwen-max', ' z-image-turbo ', 'z-image-turbo'],
+        plugins,
+        ['modelscope', 'alibaba']
+      )
+    ).toEqual([])
+  })
+
+  test('keeps only unique conflicts across duplicate and blank sources', () => {
+    expect(
+      findPluginOwnedMappingSources(
+        ['z-image-turbo', ' ', 'z-image-turbo', 'dall-e-3', ''],
+        plugins,
+        ['modelscope']
+      )
+    ).toEqual(['z-image-turbo', 'dall-e-3'])
   })
 })

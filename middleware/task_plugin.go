@@ -342,6 +342,7 @@ func PinTaskPluginEndpoint() gin.HandlerFunc {
 		pinModel := claimedModel
 		mappedModel := ""
 		rewriteTo := ""
+		var passthroughCandidates []pluginruntime.ProtocolBinding
 		if declared, ok := generation.CanonicalModel(claimedModel); ok {
 			lookupModel = declared
 			pinModel = declared
@@ -360,12 +361,33 @@ func PinTaskPluginEndpoint() gin.HandlerFunc {
 			if claimedModel != target.Alias {
 				rewriteTo = target.Alias
 			}
+		} else if target, ok := model.ResolveTaskPassthroughTarget(generation, claimedModel); ok {
+			// A passthrough channel claims this undeclared model and its mapping
+			// tail is absent from meta.models, so the claim resolves through the
+			// plugin-keyed index and the tail reaches the vendor verbatim. A
+			// plugin that does not serve this path leaves the request unpinned.
+			passthroughCandidates = generation.LookupPassthroughEndpoint(c.Request.Method, c.Request.URL.Path, target.PluginKey)
+			if len(passthroughCandidates) > 0 {
+				mappedModel = target.UpstreamModel
+				if claimedModel != target.UpstreamModel {
+					rewriteTo = target.UpstreamModel
+				}
+			} else {
+				passthroughCandidates = nil
+			}
 		}
-		binding, found := generation.LookupEndpoint(c.Request.Method, c.Request.URL.Path, lookupModel)
-		if !found || binding.Plugin == nil {
-			c.Set(contextKeyTaskPluginEndpointModel, *modelRequest)
-			c.Next()
-			return
+
+		var binding pluginruntime.ProtocolBinding
+		if len(passthroughCandidates) > 0 {
+			binding = passthroughCandidates[0]
+		} else {
+			var found bool
+			binding, found = generation.LookupEndpoint(c.Request.Method, c.Request.URL.Path, lookupModel)
+			if !found || binding.Plugin == nil {
+				c.Set(contextKeyTaskPluginEndpointModel, *modelRequest)
+				c.Next()
+				return
+			}
 		}
 		if rewriteTo != "" {
 			if rewriteErr := rewriteTaskPluginJSONModel(c, rewriteTo); rewriteErr != nil {
@@ -375,9 +397,12 @@ func PinTaskPluginEndpoint() gin.HandlerFunc {
 		}
 		modelRequest.Model = pinModel
 		c.Set(contextKeyTaskPluginEndpointModel, *modelRequest)
-		candidates := generation.LookupEndpointCandidates(c.Request.Method, c.Request.URL.Path, lookupModel)
+		candidates := passthroughCandidates
 		if len(candidates) == 0 {
-			candidates = []pluginruntime.ProtocolBinding{binding}
+			candidates = generation.LookupEndpointCandidates(c.Request.Method, c.Request.URL.Path, lookupModel)
+			if len(candidates) == 0 {
+				candidates = []pluginruntime.ProtocolBinding{binding}
+			}
 		}
 		if definition, known := pluginruntime.HostProtocol(binding.Protocol); known && len(definition.DefinedModes()) > 0 {
 			stream, background := jsonBodyBoolFlags(c)

@@ -652,6 +652,146 @@ func TestTaskPluginEndpointMissPreservesOrdinaryRequestBody(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, recorder.Code)
 }
 
+func TestTaskPluginPassthroughClaimLeavesOrdinaryProtocolRequestsUnpinned(t *testing.T) {
+	const key = "passthrough-hijack-guard-test"
+	_, err := jsplugin.DefaultRegistry.Register(multiProtocolPassthroughPluginSource(
+		key,
+		"1.0.0",
+		`["guard-declared-model"]`,
+	), jsplugin.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(key)) })
+
+	// ModelScope claims both protocols, so an undeclared name reaching either one
+	// must still be handled by the ordinary relay rather than by the plugin.
+	tests := []struct {
+		name     string
+		endpoint string
+		model    string
+		pinned   bool
+	}{
+		{name: "undeclared model on responses", endpoint: "/v1/responses", model: "dall-e-3"},
+		{name: "undeclared model on images", endpoint: "/v1/images/generations", model: "gpt-image-1"},
+		{name: "declared model on images", endpoint: "/v1/images/generations", model: "guard-declared-model", pinned: true},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			router := gin.New()
+			router.POST(
+				testCase.endpoint,
+				PinTaskPluginEndpoint(),
+				func(c *gin.Context) {
+					_, pinned := c.Get(jsplugin.ContextKeyPinnedEndpoint)
+					assert.Equal(t, testCase.pinned, pinned)
+					c.Status(http.StatusNoContent)
+				},
+			)
+			request := httptest.NewRequest(
+				http.MethodPost,
+				testCase.endpoint,
+				strings.NewReader(fmt.Sprintf(`{"model":%q,"input":"hello"}`, testCase.model)),
+			)
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			assert.Equal(t, http.StatusNoContent, recorder.Code)
+		})
+	}
+}
+
+func TestTaskPluginEndpointPinsChannelClaimedPassthroughModelToItsUpstreamName(t *testing.T) {
+	const key = "passthrough-rewrite-test"
+	_, err := jsplugin.DefaultRegistry.Register(multiProtocolPassthroughPluginSource(
+		key,
+		"1.0.0",
+		`["declared-model"]`,
+	), jsplugin.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(key)) })
+
+	setting := `{"task_plugin_key":"` + key + `"}`
+	mapping := `{"qwen-image-2.1":"Qwen/Qwen-Image-2.1","kling-image-v2":"Kling/Kling-Image-V2"}`
+	setupTaskPluginChannelDB(t, model.Channel{
+		Id: 940001, Type: constant.ChannelTypeTaskPlugin, Status: common.ChannelStatusEnabled,
+		Name: "passthrough", Models: "qwen-image-2.1,kling-image-v2,z-image-turbo", Group: "default",
+		Setting: &setting, ModelMapping: &mapping,
+	})
+
+	for _, testCase := range []struct {
+		name      string
+		model     string
+		plugin    string
+		upstream  string
+		rewritten bool
+	}{
+		{
+			name:  "claimed name is pinned to the channel and sent as its mapping tail",
+			model: "qwen-image-2.1", plugin: key,
+			upstream: "Qwen/Qwen-Image-2.1", rewritten: true,
+		},
+		{
+			name:  "each claimed name resolves independently",
+			model: "kling-image-v2", plugin: key,
+			upstream: "Kling/Kling-Image-V2", rewritten: true,
+		},
+		{
+			// A plugin that declares the name owns it outright, so listing the
+			// same name on a passthrough channel cannot capture it. The built-in
+			// alibaba plugin declares z-image-turbo, so that name keeps routing
+			// to alibaba and the passthrough mapping tail is never consulted.
+			name:  "a name another plugin declares keeps that plugin",
+			model: "z-image-turbo", plugin: "alibaba",
+		},
+		{
+			name:  "a name the channel does not list is not captured",
+			model: "dall-e-3",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var pinned jsplugin.PinnedEndpoint
+			var body []byte
+			router := gin.New()
+			router.POST("/v1/images/generations", PinTaskPluginEndpoint(), func(c *gin.Context) {
+				if value, ok := c.Get(jsplugin.ContextKeyPinnedEndpoint); ok {
+					pinned = value.(jsplugin.PinnedEndpoint)
+				}
+				body, _ = io.ReadAll(c.Request.Body)
+				c.Status(http.StatusNoContent)
+			})
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/images/generations",
+				strings.NewReader(fmt.Sprintf(`{"model":%q,"prompt":"a cat"}`, testCase.model)),
+			)
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			require.Equal(t, http.StatusNoContent, recorder.Code, recorder.Body.String())
+			if testCase.plugin == "" {
+				assert.Nil(t, pinned.Plugin,
+					"passthrough must not capture a name its channel does not list")
+				return
+			}
+			require.NotNil(t, pinned.Plugin)
+			assert.Equal(t, testCase.plugin, pinned.Plugin.Meta.Key)
+			if !testCase.rewritten {
+				assert.Empty(t, pinned.MappedModel)
+				assert.Contains(t, string(body), `"model":"`+testCase.model+`"`,
+					"a declaring plugin serves the name it declared, not a channel mapping tail")
+				return
+			}
+			assert.Equal(t, testCase.upstream, pinned.MappedModel)
+			assert.Contains(t, string(body), `"model":"`+testCase.upstream+`"`,
+				"the vendor receives the mapping tail, which meta.models does not declare")
+		})
+	}
+}
+
 func TestTaskPluginEndpointUsesOneCanonicalModelForDuplicateJSONKeys(t *testing.T) {
 	require.NoError(t, appI18n.Init())
 	const key = "endpoint-duplicate-model-test"
@@ -1748,6 +1888,48 @@ export const protocols = {
 `, key, key, version, models, protocolClaim, protocol, parseRequestBody, presenters)
 }
 
+func multiProtocolPassthroughPluginSource(key, version, models string) string {
+	return fmt.Sprintf(`
+export const meta = {
+  apiVersion: 1,
+  key: %q,
+  name: %q,
+  version: %q,
+  author: {name: "Test"},
+  models: %s,
+  modelPassthrough: true,
+  fetchMode: "per_task",
+  protocols: [
+    {name: "openai_responses", supports: ["stream", "sync", "background"]},
+    "openai_image"
+  ],
+};
+export function buildSubmitRequest() { return {url: "https://example.com"}; }
+export function parseSubmitResponse() { return {taskId: "one"}; }
+export function buildQueryRequest() { return {url: "https://example.com"}; }
+export function parseTaskResult() { return {status: "SUCCESS"}; }
+export function listArtifacts() { return []; }
+export function buildContentRequest() { throw new Error("artifact_not_found"); }
+export const protocols = {
+  openai_responses: {
+    decodeRequest: function(ctx) {
+      ctx.requestBody = ctx.body.value;
+      return {kind: "submit"};
+    },
+    renderEvents: function() { return {events: [], done: false}; },
+    renderFinal: function() { return {}; },
+  },
+  openai_image: {
+    decodeRequest: function(ctx) {
+      ctx.requestBody = ctx.body.value;
+      return {kind: "submit"};
+    },
+    render: function() { return {data: []}; },
+  },
+};
+`, key, key, version, models)
+}
+
 func pinTaskPluginRoute(plugin *jsplugin.LoadedPlugin, routeIndex int) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(jsplugin.ContextKeyPinnedRoute, jsplugin.PinnedRoute{Plugin: plugin, Route: plugin.Meta.Routes[routeIndex]})
@@ -1773,6 +1955,24 @@ func setupTaskPluginRouteDB(t *testing.T) {
 func insertTaskPluginRouteTask(t *testing.T, task *model.Task) {
 	t.Helper()
 	require.NoError(t, model.DB.Create(task).Error)
+}
+
+func setupTaskPluginChannelDB(t *testing.T, channels ...model.Channel) {
+	t.Helper()
+	previousDB := model.DB
+	previousType := common.MainDatabaseType()
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, database.AutoMigrate(&model.Channel{}))
+	for i := range channels {
+		require.NoError(t, database.Create(&channels[i]).Error)
+	}
+	model.DB = database
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.SetMainDatabaseType(previousType)
+	})
 }
 
 func TestPrepareTaskPluginEndpointFiltersEachSharedCandidate(t *testing.T) {

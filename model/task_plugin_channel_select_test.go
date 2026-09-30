@@ -6,6 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -116,4 +117,125 @@ func TestNewAPIChannelServesExtendedTaskPlugins(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, selected)
 	assert.Equal(t, "gateway", selected.Name, "requests without a pinned plugin keep using the gateway")
+}
+
+func TestPassthroughChannelServesOnlyPinnedDeclaredModels(t *testing.T) {
+	truncateTables(t)
+	priority := int64(0)
+	weight := uint(1)
+	baseURL := "https://example.com"
+	passthroughSetting := `{"task_plugin_key":"modelscope"}`
+	channels := []Channel{
+		{Id: 930001, Type: constant.ChannelTypeTaskPlugin, Status: common.ChannelStatusEnabled, Name: "passthrough", Models: "qwen-image-2.1", Group: "default", Priority: &priority, Weight: &weight, BaseURL: &baseURL, Setting: &passthroughSetting},
+	}
+	for i := range channels {
+		require.NoError(t, channels[i].Insert())
+	}
+	InitChannelCache()
+
+	selected, err := GetChannel("default", "qwen-image-2.1", 0, identityFilters("modelscope", nil))
+	require.NoError(t, err)
+	require.NotNil(t, selected, "an enabled passthrough channel serves an arbitrary name it lists in its models")
+	assert.Equal(t, "passthrough", selected.Name)
+
+	selected, err = GetChannel("default", "never-declared", 0, identityFilters("modelscope", nil))
+	require.NoError(t, err)
+	assert.Nil(t, selected, "modelPassthrough must not let a plugin serve names outside its channel models list")
+
+	// An unpinned request does not carry a nil filter: Distribute always appends
+	// an identity filter, with an empty key when no plugin is pinned. That empty
+	// key excludes every task-plugin channel, so a name the plugin does not
+	// declare can never reach this channel through the standard relay. This is
+	// the anti-hijack guard that keeps passthrough from capturing ordinary
+	// traffic: only the relay path's own pin, derived from a channel-scoped
+	// claim, may set the key that admits a passthrough channel.
+	selected, err = GetChannel("default", "qwen-image-2.1", 0, identityFilters("", nil))
+	require.NoError(t, err)
+	assert.Nil(t, selected, "an unpinned request must not reach a passthrough channel")
+}
+
+func TestPassthroughClaimCarriesChannelMappingTailAsUpstreamModel(t *testing.T) {
+	truncateTables(t)
+	const key = "passthrough-mapping-probe"
+	_, err := jsplugin.DefaultRegistry.Register(
+		pricingPassthroughPluginSource(
+			key,
+			"declared-model",
+			"1.0.0",
+			`{image_count: {type: "number", unit: "count", description: "Image generation unit price"}}`,
+		),
+		jsplugin.Options{},
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(key)) })
+
+	// A second plugin that declares z-image-turbo stands in for a built-in owner
+	// such as alibaba. The declaration, not the passthrough flag, is what gives
+	// that plugin the name, and the declaration wins over a passthrough claim.
+	const declaringKey = "declaring-probe"
+	_, err = jsplugin.DefaultRegistry.Register(
+		pricingPassthroughPluginSource(
+			declaringKey,
+			"z-image-turbo",
+			"1.0.0",
+			`{image_count: {type: "number", unit: "count", description: "Image generation unit price"}}`,
+		),
+		jsplugin.Options{},
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(declaringKey)) })
+
+	priority := int64(0)
+	weight := uint(1)
+	baseURL := "https://example.com"
+	setting := `{"task_plugin_key":"` + key + `"}`
+	mapping := `{"qwen-image-2.1":"Qwen/Qwen-Image-2.1","kling-image-v2":"Kling/Kling-Image-V2","z-image-turbo":"Tongyi-MAI/Z-Image-Turbo","ambiguous-model":"First/Upstream"}`
+	channel := Channel{
+		Id: 940001, Type: constant.ChannelTypeTaskPlugin, Status: common.ChannelStatusEnabled,
+		Name: "passthrough", Models: "qwen-image-2.1,kling-image-v2,z-image-turbo,unmapped-model,ambiguous-model",
+		Group: "default", Priority: &priority, Weight: &weight, BaseURL: &baseURL,
+		Setting: &setting, ModelMapping: &mapping,
+	}
+	require.NoError(t, channel.Insert())
+	rebuildTaskAliasView()
+	generation := jsplugin.DefaultRegistry.Generation()
+
+	target, ok := ResolveTaskPassthroughTarget(generation, "qwen-image-2.1")
+	require.True(t, ok)
+	assert.Equal(t, key, target.PluginKey)
+	assert.Equal(t, "Qwen/Qwen-Image-2.1", target.UpstreamModel,
+		"the vendor receives the mapping tail, which is absent from meta.models")
+
+	target, ok = ResolveTaskPassthroughTarget(generation, "kling-image-v2")
+	require.True(t, ok)
+	assert.Equal(t, "Kling/Kling-Image-V2", target.UpstreamModel)
+
+	_, ok = ResolveTaskPassthroughTarget(generation, "z-image-turbo")
+	assert.False(t, ok,
+		"a name another plugin declares is owned by that plugin, so this channel's mapping tail is never consulted")
+
+	target, ok = ResolveTaskPassthroughTarget(generation, "unmapped-model")
+	require.True(t, ok, "a claimed name with no mapping is still claimed")
+	assert.Equal(t, "unmapped-model", target.UpstreamModel,
+		"an unmapped claimed name reaches the vendor unchanged")
+
+	_, ok = ResolveTaskPassthroughTarget(generation, "declared-model")
+	assert.False(t, ok, "a model the plugin declares is never a passthrough claim")
+
+	_, ok = ResolveTaskPassthroughTarget(generation, "never-listed")
+	assert.False(t, ok, "a name outside the channel models list is never claimed")
+
+	// A second channel claiming the same name for a different upstream makes the
+	// claim ambiguous, so it is dropped rather than resolved to one of them.
+	secondMapping := `{"ambiguous-model":"Second/Upstream"}`
+	second := Channel{
+		Id: 940002, Type: constant.ChannelTypeTaskPlugin, Status: common.ChannelStatusEnabled,
+		Name: "passthrough-2", Models: "ambiguous-model", Group: "default",
+		Priority: &priority, Weight: &weight, BaseURL: &baseURL,
+		Setting: &setting, ModelMapping: &secondMapping,
+	}
+	require.NoError(t, second.Insert())
+	rebuildTaskAliasView()
+	_, ok = ResolveTaskPassthroughTarget(generation, "ambiguous-model")
+	assert.False(t, ok, "one plugin resolving a name to two upstream models is ambiguous")
 }

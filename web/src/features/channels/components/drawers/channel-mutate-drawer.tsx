@@ -180,6 +180,7 @@ import {
   type ModelMappingPair,
   extractRedirectModels,
   extractMappingSourceModels,
+  findPluginOwnedMappingSources,
   hasModelConfigChanged,
   findMissingModelsInMapping,
   validateModelMappingJson,
@@ -951,6 +952,28 @@ export function ChannelMutateDrawer({
       return { ...createEmptyModelMappingGuardrail(), invalidJson: true }
     }
   }, [currentModelMapping, currentModelsArray])
+
+  // Keys the channel binds; only passthrough-binding channels race plugins for
+  // undeclared mapping names, so the warning is scoped to that case.
+  const boundTaskPluginKeys = useMemo(() => {
+    if (currentType !== CHANNEL_TYPE_TASK_PLUGIN) return []
+    return [currentTaskPluginKey, ...(currentTaskExtendPluginKeys ?? [])].filter(
+      (key): key is string => Boolean(key)
+    )
+  }, [currentType, currentTaskPluginKey, currentTaskExtendPluginKeys])
+
+  // Mapping sources already served by a plugin the channel does not bind.
+  // Declared models always win over passthrough claims, so such entries are
+  // dead weight: requests for them never reach this channel.
+  const pluginOwnedSourceModels = useMemo(
+    () =>
+      findPluginOwnedMappingSources(
+        modelMappingGuardrail.entries.map((entry) => entry.source),
+        taskPluginOptionsQuery.data ?? [],
+        boundTaskPluginKeys
+      ),
+    [modelMappingGuardrail.entries, taskPluginOptionsQuery.data, boundTaskPluginKeys]
+  )
 
   const mappingPreviewPairs =
     modelMappingGuardrail.entries.length > 0
@@ -2523,6 +2546,16 @@ export function ChannelMutateDrawer({
                       {t('View models')}
                     </Button>
                   </div>
+                </AlertDescription>
+              </Alert>
+            )}
+            {pluginOwnedSourceModels.length > 0 && (
+              <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
+                <AlertDescription>
+                  {t(
+                    'These models are already provided by other task plugins, so this mapping is not used for them and requests go to the owning plugin: {{models}}',
+                    { models: formatModelNames(pluginOwnedSourceModels) }
+                  )}
                 </AlertDescription>
               </Alert>
             )}

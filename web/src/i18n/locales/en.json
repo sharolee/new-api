@@ -5899,6 +5899,7 @@
     "Theme Settings": "Theme Settings",
     "There are both add and remove models pending, but you only selected one type. Confirm submitting only the selected items?": "There are both add and remove models pending, but you only selected one type. Confirm submitting only the selected items?",
     "There is a rule for vip billed as premium → use its ratio 0.3": "There is a rule for vip billed as premium → use its ratio 0.3",
+    "These models are already provided by other task plugins, so this mapping is not used for them and requests go to the owning plugin: {{models}}": "These models are already provided by other task plugins, so this mapping is not used for them and requests go to the owning plugin: {{models}}",
     "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.": "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.",
     "These models were not returned by the upstream. Uncheck to remove them, or select them again before saving. Model mapping source aliases are excluded.": "These models were not returned by the upstream. Uncheck to remove them, or select them again before saving. Model mapping source aliases are excluded.",
     "These plugins use this channel's connection settings.": "These plugins use this channel's connection settings.",

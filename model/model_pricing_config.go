@@ -278,7 +278,7 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 				entry.UsageSchema, _ = plugin.Meta.UsageForModel(target.Declared)
 			}
 		}
-		plugins := generation.PluginsByModel(name)
+		plugins := billingPluginsFor(generation, name)
 		configuredVariants, _ := configured[billing_setting.PluginBillingExprOption].(map[string]any)
 		if len(plugins) >= 2 || len(configuredVariants) > 0 {
 			keys := make(map[string]bool, len(plugins)+len(configuredVariants))
@@ -292,7 +292,9 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 				configuredValue, overridden := configuredVariants[key]
 				configuredExpr, _ := configuredValue.(string)
 				plugin, exists := generation.Get(key)
-				if !exists || !slices.Contains(plugin.Meta.Models, name) {
+				if !exists || !slices.ContainsFunc(plugins, func(candidate *jsplugin.LoadedPlugin) bool {
+					return candidate.Meta.Key == key
+				}) {
 					variant := ModelPricingPluginVariant{
 						PluginKey: key, PluginName: key, Configured: configuredExpr,
 						UsageSchema: map[string]jsplugin.UsageFieldSchema{}, Stale: true,
@@ -366,6 +368,7 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 	}
 	generation := jsplugin.DefaultRegistry.Generation()
 	previousVariants, _ := previous[billing_setting.PluginBillingExprOption].(map[string]any)
+	providers := billingPluginsFor(generation, name)
 	variants := map[string]any{}
 	if value, exists := values[billing_setting.PluginBillingExprOption]; exists {
 		var ok bool
@@ -379,7 +382,9 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 				return fmt.Errorf("model %s: plugin %s: billing expression is required", name, key)
 			}
 			plugin, exists := generation.Get(key)
-			if !exists || !slices.Contains(plugin.Meta.Models, name) {
+			if !exists || !slices.ContainsFunc(providers, func(candidate *jsplugin.LoadedPlugin) bool {
+				return candidate.Meta.Key == key
+			}) {
 				if previousVariants[key] == expression {
 					continue
 				}
@@ -415,7 +420,7 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 				return fmt.Errorf("model %s: %w", name, err)
 			}
 			var err error
-			if plugins := generation.PluginsByModel(name); len(plugins) > 0 {
+			if plugins := billingPluginsFor(generation, name); len(plugins) > 0 {
 				for _, plugin := range plugins {
 					if _, overridden := variants[plugin.Meta.Key]; overridden {
 						continue

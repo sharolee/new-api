@@ -8,6 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// modelsOf 提取结果行的模型名序列，供行序断言使用。
+func modelsOf(data []ModelRequestStatus) []string {
+	models := make([]string, 0, len(data))
+	for i := range data {
+		models = append(models, data[i].Model)
+	}
+	return models
+}
+
 func TestGetModelRequestStatuses(t *testing.T) {
 	truncateTables(t)
 
@@ -188,10 +197,8 @@ func TestGetModelRequestStatuses(t *testing.T) {
 	assert.Equal(t, 2, local.Total)
 	assert.Len(t, local.Requests, 2)
 
-	// Verify deterministic sort order (alphabetical) by checking the result slice directly
-	for i := 1; i < len(data); i++ {
-		assert.True(t, data[i-1].Model <= data[i].Model, "data slice should be sorted: %v", data)
-	}
+	// 行序按各模型最新一次调用时间倒序（最新在前）：local-model(now+21) > claude-3(now+12) > gpt-4(now+4) > gpt-3.5(now+2)
+	require.Equal(t, []string{"local-model", "claude-3", "gpt-4", "gpt-3.5"}, modelsOf(data))
 
 	// Test upstream_model_name aggregation
 	dataUpstream, err := GetModelRequestStatuses(now, now+30, "", "upstream_model_name", 10, 1)
@@ -332,6 +339,9 @@ func TestGetModelRequestStatusesUpstreamMiddlewareResolution(t *testing.T) {
 	// 无映射的别名：中间件错误保留在 orphan 行
 	require.Contains(t, modelMap, "orphan")
 	assert.Equal(t, 1, modelMap["orphan"].Total)
+
+	// 行序按各模型最新一次调用时间倒序：orphan(now+40) > multi(now+32) > upstream-b(now+31) > upstream-a(now+30) > gemini-2.5-flash(now+20)
+	require.Equal(t, []string{"orphan", "multi", "upstream-b", "upstream-a", "gemini-2.5-flash"}, modelsOf(data))
 }
 
 func TestGetModelRequestStatusesClientGone(t *testing.T) {

@@ -390,6 +390,12 @@ func updatePricing() {
 			if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved {
 				plugin, ok = pluginGeneration.Get(target.PluginKey)
 				usageModel = target.Declared
+			} else if providers := billingPluginsFor(pluginGeneration, model); len(providers) == 1 {
+				// A model nobody declared is served by a passthrough channel that
+				// claims it, so that plugin still describes the usage. Ambiguous or
+				// unclaimed passthrough ownership keeps settlement on the per-task
+				// path.
+				plugin, ok = providers[0], true
 			}
 		}
 		if ok && plugin != nil {
@@ -397,7 +403,7 @@ func updatePricing() {
 			pricing.BillingUsageSchema = jsplugin.CloneUsageSchema(usageSchema)
 			pricing.BillingUsageExamples = jsplugin.CloneUsageExamples(usageExamples)
 		}
-		providers := pluginGeneration.PluginsByModel(model)
+		providers := billingPluginsFor(pluginGeneration, model)
 		hasProviderOverride := false
 		for _, provider := range providers {
 			if _, configured := billing_setting.GetPluginBillingExpr(provider.Meta.Key, model); configured {

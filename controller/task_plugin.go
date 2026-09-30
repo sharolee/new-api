@@ -690,6 +690,10 @@ func GetTaskPluginOptions(c *gin.Context) {
 				"upstreams":     meta.Upstreams,
 				"usageSchema":   meta.UsageSchema,
 				"usageProfiles": meta.UsageProfiles,
+				// The channel editor needs this to tell a passthrough channel
+				// that a mapping key is already owned by another plugin, because
+				// declared models always win over passthrough claims.
+				"modelPassthrough": meta.ModelPassthrough,
 			})
 		}
 	}

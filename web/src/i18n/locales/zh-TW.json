@@ -5899,6 +5899,7 @@
     "Theme Settings": "主題設定",
     "There are both add and remove models pending, but you only selected one type. Confirm submitting only the selected items?": "目前有新增和刪除兩類待處理模型，但您只勾選了其中一類。確認僅提交已勾選的部分嗎？",
     "There is a rule for vip billed as premium → use its ratio 0.3": "存在「vip 按 premium 收費」的規則 → 用規則裡的 0.3",
+    "These models are already provided by other task plugins, so this mapping is not used for them and requests go to the owning plugin: {{models}}": "這些模型已由其他任務外掛提供，因此此映射不會生效，請求會傳送給提供該模型的外掛：{{models}}",
     "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.": "這些模型仍然在您的勾選列表中，但上游已不再返回該名稱；僅作為 model_mapping 來源鍵而不會出現在 upstream 列表的別名已從本視圖排除，請在儲存前調整勾選。",
     "These models were not returned by the upstream. Uncheck to remove them, or select them again before saving. Model mapping source aliases are excluded.": "上游未傳回這些模型。取消勾選可將其移除，儲存前仍可重新勾選。模型映射的來源別名不會顯示在此清單中。",
     "These plugins use this channel's connection settings.": "這些外掛使用目前渠道的連線設定。",

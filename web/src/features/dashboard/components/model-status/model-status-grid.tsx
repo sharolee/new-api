@@ -233,7 +233,7 @@ export function ModelStatusGrid() {
   const userRole = useAuthStore((state) => state.auth.user?.role)
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
 
-  const [timeRangeHours, setTimeRangeHours] = useState(24)
+  const [timeRangeHours, setTimeRangeHours] = useState(6)
   const [limit, setLimit] = useState(20)
   const [aggregateBy, setAggregateBy] = useState<AggregateBy>(
     'upstream_model_name'

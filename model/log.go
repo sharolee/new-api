@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1145,14 +1146,22 @@ func GetModelRequestStatuses(startTimestamp, endTimestamp int64, username string
 		}
 	}
 
-	keys := make([]string, 0, len(grouped))
-	for key := range grouped {
-		keys = append(keys, key)
+	result := make([]ModelRequestStatus, 0, len(grouped))
+	for _, group := range grouped {
+		result = append(result, *group)
 	}
-	sort.Strings(keys)
-	result := make([]ModelRequestStatus, 0, len(keys))
-	for _, key := range keys {
-		result = append(result, *grouped[key])
-	}
+	// 行序按各模型最新一次调用时间倒序（最新在前）；同一最新时间按模型名升序保证输出稳定。
+	// 每组 Requests 按 created_at desc 流入，limit 截断保留最新若干条，故 Requests[0] 即该模型窗口内最新一次调用。
+	slices.SortFunc(result, func(a, b ModelRequestStatus) int {
+		latestA := a.Requests[0].CreatedAt
+		latestB := b.Requests[0].CreatedAt
+		if latestA != latestB {
+			if latestA > latestB {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Model, b.Model)
+	})
 	return result, nil
 }

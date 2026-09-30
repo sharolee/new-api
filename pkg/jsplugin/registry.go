@@ -98,6 +98,7 @@ type Meta struct {
 	BaseURL              string                      `json:"baseUrl,omitempty"`
 	ChannelTypes         []int                       `json:"channelTypes,omitempty"`
 	Models               []string                    `json:"models"`
+	ModelPassthrough     bool                        `json:"modelPassthrough,omitempty"`
 	FetchMode            string                      `json:"fetchMode"`
 	AllowedHosts         []string                    `json:"allowedHosts"`
 	Upstreams            []string                    `json:"upstreams,omitempty"`
@@ -1003,7 +1004,7 @@ func decodeMeta(value any) (Meta, error) {
 	}
 	for field := range object {
 		switch field {
-		case "requiredCapabilities", "submitResponseTypes", "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "upstreams", "routes", "protocols", "usageSchema", "usageExamples", "usageProfiles", "auth", "endpoints", "submitPaths", "actions":
+		case "requiredCapabilities", "submitResponseTypes", "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "modelPassthrough", "fetchMode", "allowedHosts", "upstreams", "routes", "protocols", "usageSchema", "usageExamples", "usageProfiles", "auth", "endpoints", "submitPaths", "actions":
 		default:
 			return Meta{}, &UnknownMetaFieldError{Field: field}
 		}
@@ -1094,6 +1095,13 @@ func decodeMeta(value any) (Meta, error) {
 	meta.Models, err = strictStringSlice(object, "models")
 	if err != nil {
 		return Meta{}, err
+	}
+	if value, exists := object["modelPassthrough"]; exists {
+		passthrough, ok := value.(bool)
+		if !ok {
+			return Meta{}, fmt.Errorf("plugin meta modelPassthrough must be a boolean")
+		}
+		meta.ModelPassthrough = passthrough
 	}
 	meta.AllowedHosts, err = strictStringSlice(object, "allowedHosts")
 	if err != nil {

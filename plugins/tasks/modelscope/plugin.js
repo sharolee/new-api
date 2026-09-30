@@ -46,6 +46,13 @@ export const meta = {
   author: { name: "QuantumNous" },
   baseUrl: "https://api-inference.modelscope.cn",
   models: ["Qwen/Qwen-Image", "Qwen/Qwen-Image-Edit-2509"],
+  // ModelScope adds image models continuously and its /v1/models list is not a
+  // reliable subset of the generation models, so the vendor accepts any model
+  // name. Keep the entries above: they take exact routing priority and anchor
+  // the plugin default usage schema. Declare modelPassthrough only when
+  // meta.usageSchema is model-independent, because a passthrough model with no
+  // usageProfiles entry falls back to these defaults.
+  modelPassthrough: true,
   fetchMode: "per_task",
   upstreams: ["vendor", "new_api"],
   usageSchema: {
