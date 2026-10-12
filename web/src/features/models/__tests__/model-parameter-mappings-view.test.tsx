@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -25,13 +26,22 @@ import { api } from '@/lib/api'
 import { ModelMappingsView } from '../components/model-parameter-mappings-view'
 import type { ModelMappingRow } from '../types'
 
-vi.mock('@tanstack/react-router', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
-  getRouteApi: () => ({
-    useSearch: () => ({}),
-    useNavigate: () => vi.fn(),
-  }),
-}))
+// The mocked route API must return stable `useSearch`/`useNavigate` references.
+// Returning a fresh object/function on every render drives the table's
+// search-sync effect into an infinite update loop once the view re-renders (for
+// example when the assign dialog opens), which blocks the event loop and hangs
+// the test.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const search = {}
+  const navigate = vi.fn()
+  return {
+    ...(await importOriginal<typeof import('@tanstack/react-router')>()),
+    getRouteApi: () => ({
+      useSearch: () => search,
+      useNavigate: () => navigate,
+    }),
+  }
+})
 
 const base: Omit<ModelMappingRow, 'model' | 'declaredModel' | 'matched'> = {
   channelId: 1,
@@ -113,6 +123,137 @@ describe('model parameter mappings view', () => {
     await screen.findByText('gpt-5')
     await waitFor(() => expect(client.isFetching()).toBe(0))
     expect(screen.getAllByText('gpt-5')).toHaveLength(1)
+
+    client.clear()
+  })
+
+  it('pre-selects the row existing canonical mapping when opening the assign dialog', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      if (url === '/api/model_parameters/mappings') {
+        return {
+          data: {
+            success: true,
+            data: {
+              items: mapRows([
+                {
+                  model: 'moonshot-v1',
+                  declaredModel: 'moonshot-v1',
+                  matched: true,
+                  canonicalId: 977,
+                  canonicalKey: 'kimi-k2-6',
+                  displayName: 'Kimi k2.6',
+                },
+              ]),
+              total: 1,
+            },
+          },
+        }
+      }
+      return { data: { success: true, data: { items: [], total: 0 } } }
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <ModelMappingsView />
+      </QueryClientProvider>
+    )
+
+    const assignButton = await screen.findByRole('button', { name: 'Assign' })
+    await user.click(assignButton)
+
+    // The current mapping is shown as the selected value, so opening another row
+    // can never inherit a stale selection from a previous dialog.
+    const input = screen.getByRole('combobox', { name: 'Canonical model' })
+    await waitFor(() => expect(input).toHaveValue('kimi-k2-6'))
+
+    client.clear()
+  })
+
+  it('searches canonical models by keyword on the server when assigning', async () => {
+    const user = userEvent.setup()
+    const get = vi.spyOn(api, 'get').mockImplementation(async (url, config) => {
+      if (url === '/api/model_parameters/mappings') {
+        return {
+          data: {
+            success: true,
+            data: {
+              items: mapRows([
+                {
+                  model: 'moonshot-v1',
+                  declaredModel: 'moonshot-v1',
+                  matched: false,
+                },
+              ]),
+              total: 1,
+            },
+          },
+        }
+      }
+      if (url === '/api/model_parameters') {
+        const keyword = config?.params?.keyword
+        return {
+          data: {
+            success: true,
+            data: keyword
+              ? {
+                  items: [
+                    {
+                      id: 977,
+                      canonicalKey: 'kimi-k2-6',
+                      displayName: 'Kimi k2.6',
+                    },
+                  ],
+                  total: 1,
+                }
+              : { items: [], total: 0 },
+          },
+        }
+      }
+      return { data: { success: true, data: { items: [], total: 0 } } }
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <ModelMappingsView />
+      </QueryClientProvider>
+    )
+
+    // Open the assign dialog for an unmatched row.
+    const assignButton = await screen.findByRole('button', { name: 'Assign' })
+    await user.click(assignButton)
+    const input = screen.getByRole('combobox', { name: 'Canonical model' })
+
+    // Opening the dialog fetches the first page of candidates.
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith(
+        '/api/model_parameters',
+        expect.objectContaining({
+          params: expect.objectContaining({ page_size: 50 }),
+        })
+      )
+    )
+
+    // Typing defers to a server-side keyword search.
+    await user.click(input)
+    await user.type(input, 'kimi')
+    await waitFor(
+      () =>
+        expect(get).toHaveBeenCalledWith(
+          '/api/model_parameters',
+          expect.objectContaining({
+            params: expect.objectContaining({ keyword: 'kimi' }),
+          })
+        ),
+      { timeout: 2000 }
+    )
+
+    // The server-side match renders as a selectable option.
+    expect(await screen.findByRole('option', { name: /kimi-k2-6/ })).toBeVisible()
 
     client.clear()
   })

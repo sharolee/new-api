@@ -113,8 +113,10 @@ export const modelParametersQueryKeys = {
   list: (filters: GetModelParametersParams) =>
     [...modelParametersQueryKeys.lists(), filters] as const,
   sources: () => [...modelParametersQueryKeys.all, 'sources'] as const,
-  assignOptions: () =>
+  assignOptionsRoot: () =>
     [...modelParametersQueryKeys.all, 'assign-options'] as const,
+  assignOptions: (keyword?: string) =>
+    [...modelParametersQueryKeys.assignOptionsRoot(), keyword ?? ''] as const,
 }
 
 /**

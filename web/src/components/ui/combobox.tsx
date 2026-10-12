@@ -44,6 +44,9 @@ type LegacyComboboxProps = {
   options: readonly ComboboxInputOption[]
   value?: string | null
   onValueChange?: (value: string | null) => void
+  // When provided, the caller owns search: typed input is reported here and the
+  // supplied `options` are treated as already filtered (no client-side filter).
+  onSearchChange?: (value: string) => void
   placeholder?: string
   searchPlaceholder?: string
   emptyText?: string
@@ -114,7 +117,10 @@ function OptionCombobox(props: LegacyComboboxProps) {
       open={open && !props.disabled}
       inputValue={open ? search : displayedValue}
       onInputValueChange={(value, details) => {
-        if (details.reason === 'input-change') setSearch(value)
+        if (details.reason === 'input-change') {
+          setSearch(value)
+          props.onSearchChange?.(value)
+        }
       }}
       onOpenChange={(nextOpen, details) => {
         setOpen(nextOpen)
@@ -124,6 +130,10 @@ function OptionCombobox(props: LegacyComboboxProps) {
         if (option) props.onValueChange?.(option.value)
       }}
       filter={(option, query) => {
+        // A caller-provided onSearchChange owns search: its options are already
+        // filtered server-side, so applying a client filter would hide valid
+        // matches (e.g. ones matched on the description).
+        if (props.onSearchChange) return true
         const term = query.trim().toLowerCase()
         return (
           option.label.toLowerCase().includes(term) ||

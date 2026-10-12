@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
 import type { ComboboxInputOption } from '@/components/ui/combobox-input'
 import { Label } from '@/components/ui/label'
-import { useMediaQuery } from '@/hooks'
+import { useDebounce, useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
@@ -64,6 +64,7 @@ export function ModelMappingsView() {
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [assignTarget, setAssignTarget] = useState<ModelMappingRow | null>(null)
   const [canonicalChoice, setCanonicalChoice] = useState<string>('')
+  const [assignSearch, setAssignSearch] = useState('')
   const [clearTarget, setClearTarget] = useState<ModelMappingRow | null>(null)
 
   const {
@@ -106,22 +107,43 @@ export function ModelMappingsView() {
   const items = data?.data?.items ?? []
   const totalCount = data?.data?.total ?? 0
 
-  // Canonical models available for manual assignment.
+  // Canonical models for manual assignment, searched on the server so models
+  // beyond the first page of the catalog remain selectable.
+  const assignKeyword = useDebounce(assignSearch, 250).trim()
   const { data: canonicalData } = useQuery({
-    queryKey: modelParametersQueryKeys.assignOptions(),
+    queryKey: modelParametersQueryKeys.assignOptions(
+      assignKeyword || undefined
+    ),
     queryFn: async () =>
-      requireServerSuccess(await getModelParameters({ page_size: 1000 })),
+      requireServerSuccess(
+        await getModelParameters({
+          keyword: assignKeyword || undefined,
+          page_size: 50,
+        })
+      ),
     enabled: assignTarget !== null,
   })
-  const canonicalOptions: ComboboxInputOption[] = useMemo(
-    () =>
-      (canonicalData?.data?.items ?? []).map((item) => ({
-        value: String(item.id),
-        label: item.canonicalKey,
-        description: item.displayName || undefined,
-      })),
-    [canonicalData?.data?.items]
-  )
+  const canonicalOptions: ComboboxInputOption[] = useMemo(() => {
+    const options = (canonicalData?.data?.items ?? []).map((item) => ({
+      value: String(item.id),
+      label: item.canonicalKey,
+      description: item.displayName || undefined,
+    }))
+    // Keep the current mapping visible even when it is outside the search page.
+    const presetId = assignTarget?.canonicalId
+    const presetKey = assignTarget?.canonicalKey
+    if (presetId == null || !presetKey) return options
+    const presetValue = String(presetId)
+    if (options.some((option) => option.value === presetValue)) return options
+    return [
+      {
+        value: presetValue,
+        label: presetKey,
+        description: assignTarget?.displayName || undefined,
+      },
+      ...options,
+    ]
+  }, [canonicalData?.data?.items, assignTarget])
 
   const assign = useMutation({
     mutationFn: async (target: ModelMappingRow) => {
@@ -138,12 +160,13 @@ export function ModelMappingsView() {
       toast.success(t('Mapping assigned'))
       setAssignTarget(null)
       setCanonicalChoice('')
+      setAssignSearch('')
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: modelMappingsQueryKeys.lists(),
         }),
         queryClient.invalidateQueries({
-          queryKey: modelParametersQueryKeys.assignOptions(),
+          queryKey: modelParametersQueryKeys.assignOptionsRoot(),
         }),
       ])
     },
@@ -287,6 +310,7 @@ export function ModelMappingsView() {
                     ? String(row.original.canonicalId)
                     : ''
                 )
+                setAssignSearch('')
                 setAssignTarget(row.original)
               }}
             >
@@ -378,7 +402,10 @@ export function ModelMappingsView() {
       <ConfirmDialog
         open={assignTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setAssignTarget(null)
+          if (!open) {
+            setAssignTarget(null)
+            setAssignSearch('')
+          }
         }}
         title={t('Assign canonical model')}
         desc={t(
@@ -397,7 +424,11 @@ export function ModelMappingsView() {
           <Combobox
             options={canonicalOptions}
             value={canonicalChoice || null}
-            onValueChange={(value) => setCanonicalChoice(value ?? '')}
+            onValueChange={(value) => {
+              setCanonicalChoice(value ?? '')
+              setAssignSearch('')
+            }}
+            onSearchChange={setAssignSearch}
             placeholder={t('Search canonical models...')}
             searchPlaceholder={t('Search canonical models...')}
             aria-label={t('Canonical model')}

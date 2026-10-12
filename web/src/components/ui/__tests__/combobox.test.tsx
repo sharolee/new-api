@@ -184,6 +184,31 @@ describe('searchable single selection', () => {
   })
 })
 
+describe('remote search', () => {
+  it('reports typed input through onSearchChange and leaves filtering to the caller', async () => {
+    const onSearchChange = vi.fn()
+    render(
+      <Combobox
+        options={options}
+        value={null}
+        onValueChange={() => {}}
+        onSearchChange={onSearchChange}
+        aria-label='Provider'
+        emptyText='No matching provider'
+      />
+    )
+    const user = userEvent.setup()
+    const input = screen.getByRole('combobox', { name: 'Provider' })
+    await user.click(input)
+    await user.type(input, 'gem')
+
+    expect(onSearchChange).toHaveBeenLastCalledWith('gem')
+    // The caller owns filtering, so supplied options are not filtered again.
+    expect(screen.getByRole('option', { name: 'OpenAI' })).toBeVisible()
+    expect(screen.getByRole('option', { name: 'Google' })).toBeVisible()
+  })
+})
+
 const pluginOptions = [
   {
     value: 'alpha',
