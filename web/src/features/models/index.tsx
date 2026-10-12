@@ -31,6 +31,9 @@ import { listDeployments, getAvailableModels } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
 import { DeploymentsTable } from './components/deployments-table'
 import { CreateDeploymentDrawer } from './components/dialogs/create-deployment-drawer'
+import { ModelParameterLibraryDialogs } from './components/model-parameter-library-dialogs'
+import { ModelParameterPrimaryButtons } from './components/model-parameter-primary-buttons'
+import { ModelParametersSection } from './components/model-parameters-section'
 import { ModelsAvailableTable } from './components/models-available-table'
 import { ModelsDialogs } from './components/models-dialogs'
 import { ModelsPrimaryButtons } from './components/models-primary-buttons'
@@ -63,6 +66,10 @@ const SECTION_META: Record<
   deployments: {
     titleKey: 'Deployments',
     tabKey: 'Deployments',
+  },
+  parameters: {
+    titleKey: 'Model Parameters',
+    tabKey: 'Model Parameters',
   },
 }
 
@@ -97,8 +104,7 @@ function ModelsContent() {
 
   const meta = SECTION_META[activeSection] ?? SECTION_META.metadata
 
-  let actions =
-    activeSection === 'available' ? null : <ModelsPrimaryButtons />
+  let actions = activeSection === 'available' ? null : <ModelsPrimaryButtons />
   let content =
     activeSection === 'available' ? <AvailableModelsSection /> : <ModelsTable />
   if (activeSection === 'vendors') {
@@ -123,6 +129,9 @@ function ModelsContent() {
       </Button>
     )
     content = <DeploymentsSection />
+  } else if (activeSection === 'parameters') {
+    actions = <ModelParameterPrimaryButtons />
+    content = <ModelParametersSection />
   }
 
   return (
@@ -150,6 +159,7 @@ function ModelsContent() {
       </SectionPageLayout>
 
       <ModelsDialogs />
+      <ModelParameterLibraryDialogs />
       <CreateDeploymentDrawer
         open={createDeploymentOpen}
         onOpenChange={setCreateDeploymentOpen}

@@ -372,6 +372,8 @@ func migrateDB() error {
 		&AuthzRole{},
 		&ModelCategory{},
 		&ModelModelCategory{},
+		&CanonicalModelParameter{},
+		&ModelParameterAlias{},
 	)
 	if err != nil {
 		return err

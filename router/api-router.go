@@ -415,6 +415,21 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.DELETE("/:id", controller.DeleteModelMeta)
 		}
 
+		modelParametersRoute := apiRouter.Group("/model_parameters")
+		modelParametersRoute.Use(middleware.AdminAuth())
+		{
+			modelParametersRoute.GET("/sources", controller.ListModelParameterSources)
+			modelParametersRoute.POST("/sync", controller.SyncModelParameters)
+			modelParametersRoute.GET("/overview", controller.ListModelParameterOverview)
+			modelParametersRoute.GET("/mappings", controller.ListModelParameterMappings)
+			modelParametersRoute.PUT("/mappings", controller.UpdateModelParameterMapping)
+			modelParametersRoute.DELETE("/mappings", controller.DeleteModelParameterMapping)
+			modelParametersRoute.GET("/", controller.ListModelParameters)
+			modelParametersRoute.POST("/", controller.CreateModelParameter)
+			modelParametersRoute.PUT("/:id", controller.UpdateModelParameter)
+			modelParametersRoute.DELETE("/:id", controller.DeleteModelParameter)
+		}
+
 		// Deployments (model deployment management)
 		deploymentsRoute := apiRouter.Group("/deployments")
 		deploymentsRoute.Use(middleware.AdminAuth())

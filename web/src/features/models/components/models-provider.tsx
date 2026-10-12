@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { createContext, useContext, useState } from 'react'
 
 import type {
+  CanonicalModel,
   Model,
   ModelTabCategory,
   Vendor,
@@ -45,6 +46,8 @@ type DialogType =
   | 'description'
   | null
 
+type ParameterLibraryDialog = 'sync' | 'form' | null
+
 type ModelsContextType = {
   open: DialogType
   setOpen: (open: DialogType) => void
@@ -64,6 +67,10 @@ type ModelsContextType = {
   >
   tabCategory: ModelTabCategory
   setTabCategory: (category: ModelTabCategory) => void
+  parametersDialog: ParameterLibraryDialog
+  setParametersDialog: (open: ParameterLibraryDialog) => void
+  parameterEditing: CanonicalModel | null
+  setParameterEditing: (model: CanonicalModel | null) => void
 }
 
 // ============================================================================
@@ -93,6 +100,10 @@ export function ModelsProvider({ children }: { children: React.ReactNode }) {
     source: 'official',
   })
   const [tabCategory, setTabCategory] = useState<ModelTabCategory>('metadata')
+  const [parametersDialog, setParametersDialog] =
+    useState<ParameterLibraryDialog>(null)
+  const [parameterEditing, setParameterEditing] =
+    useState<CanonicalModel | null>(null)
 
   return (
     <ModelsContext.Provider
@@ -111,6 +122,10 @@ export function ModelsProvider({ children }: { children: React.ReactNode }) {
         setSyncWizardOptions,
         tabCategory,
         setTabCategory,
+        parametersDialog,
+        setParametersDialog,
+        parameterEditing,
+        setParameterEditing,
       }}
     >
       {children}

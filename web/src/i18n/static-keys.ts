@@ -165,6 +165,7 @@ export const STATIC_I18N_KEYS = [
   'Add metadata to all selected models first.',
 
   'Model management',
+  'Model Parameters',
   'Select models',
   'Preview fields',
   'Confirm changes',
@@ -730,7 +731,7 @@ export const STATIC_I18N_KEYS = [
   'The model that was requested',
   'The upstream channel that served the requests',
 
-// Error analysis categories
+  // Error analysis categories
   'Rate limit',
   'Quota',
   'Unavailable',

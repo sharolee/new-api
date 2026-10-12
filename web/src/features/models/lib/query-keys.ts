@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { GetModelsParams, SearchModelsParams, GetAvailableModelsParams } from '../types'
+import type {
+  GetModelsParams,
+  SearchModelsParams,
+  GetAvailableModelsParams,
+  GetModelParametersParams,
+  GetModelMappingsParams,
+  GetModelOverviewParams,
+} from '../types'
 
 /**
  * React Query cache keys for models
@@ -95,4 +102,37 @@ export const modelCategoriesQueryKeys = {
 export const availableChannelsQueryKeys = {
   all: ['available-channels'] as const,
   list: () => [...availableChannelsQueryKeys.all, 'list'] as const,
+}
+
+/**
+ * React Query cache keys for the model parameter library (canonical models)
+ */
+export const modelParametersQueryKeys = {
+  all: ['model-parameters'] as const,
+  lists: () => [...modelParametersQueryKeys.all, 'list'] as const,
+  list: (filters: GetModelParametersParams) =>
+    [...modelParametersQueryKeys.lists(), filters] as const,
+  sources: () => [...modelParametersQueryKeys.all, 'sources'] as const,
+  assignOptions: () =>
+    [...modelParametersQueryKeys.all, 'assign-options'] as const,
+}
+
+/**
+ * React Query cache keys for the model name mapping view
+ */
+export const modelMappingsQueryKeys = {
+  all: ['model-parameter-mappings'] as const,
+  lists: () => [...modelMappingsQueryKeys.all, 'list'] as const,
+  list: (filters: GetModelMappingsParams) =>
+    [...modelMappingsQueryKeys.lists(), filters] as const,
+}
+
+/**
+ * React Query cache keys for the model parameter overview view
+ */
+export const modelOverviewQueryKeys = {
+  all: ['model-parameter-overview'] as const,
+  lists: () => [...modelOverviewQueryKeys.all, 'list'] as const,
+  list: (filters: GetModelOverviewParams) =>
+    [...modelOverviewQueryKeys.lists(), filters] as const,
 }

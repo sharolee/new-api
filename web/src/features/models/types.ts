@@ -470,7 +470,12 @@ export interface AssignCategoriesResponse {
   }
 }
 
-export type ModelTabCategory = 'metadata' | 'available' | 'vendors' | 'deployments'
+export type ModelTabCategory =
+  | 'metadata'
+  | 'available'
+  | 'vendors'
+  | 'deployments'
+  | 'parameters'
 
 /**
  * Deployment entity from API
@@ -551,3 +556,251 @@ export interface DeploymentLogsResponse {
     cursor?: string
   }
 }
+
+// ============================================================================
+// Model Parameter Library
+// ============================================================================
+
+/**
+ * Canonical (normalized) model parameter record from the model-parameter
+ * library. Keyed by a stable canonical key ('vendor/model'), decoupled from
+ * channels and from the existing `models`/`vendors` catalog.
+ */
+export interface CanonicalModel {
+  id: number
+  canonicalKey: string
+  displayName: string
+  vendor: string
+  contextLength: number | null
+  maxOutputTokens: number | null
+  inputModalities: string[]
+  outputModalities: string[]
+  reasoning: boolean | null // null = unknown
+  reasoningEfforts: string[]
+  toolCall: boolean | null
+  structuredOutput: boolean | null
+  attachment: boolean | null
+  knowledgeCutoff: string | null
+  releaseDate: string | null
+  parameterCount: string | null
+  category: string
+  tags: string[]
+  priceInput: number | null // per 1M tokens
+  priceOutput: number | null // per 1M tokens
+  source: string // 'models.dev' | 'litellm' | 'openrouter' | 'manual'
+  sourceId: string
+  manualOverride: boolean
+  syncTime: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * Body used by both create and update endpoints: CanonicalModel without the
+ * server-managed id/timestamps. `canonicalKey` is required on create.
+ */
+export type CanonicalModelParameterPayload = Omit<
+  CanonicalModel,
+  'id' | 'createdAt' | 'updatedAt'
+>
+
+/**
+ * Server-side capability filter for the canonical model list.
+ */
+export type ModelParameterCapability =
+  | 'reasoning'
+  | 'vision'
+  | 'tool_call'
+  | 'structured_output'
+
+/**
+ * List canonical model parameters
+ */
+export interface GetModelParametersParams {
+  page?: number
+  page_size?: number
+  keyword?: string
+  vendor?: string
+  capability?: ModelParameterCapability
+  category?: string
+  source?: string
+}
+
+export interface ListModelParametersResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: CanonicalModel[]
+    total: number
+  }
+}
+
+export interface ModelParameterItemResponse {
+  success: boolean
+  message?: string
+  data?: {
+    item: CanonicalModel
+  }
+}
+
+/**
+ * A sync source exposed by the backend (models.dev, litellm, openrouter, ...).
+ */
+export interface ModelParameterSource {
+  name: string
+  description: string
+  enabled: boolean
+}
+
+export interface ModelParameterSourcesResponse {
+  success: boolean
+  message?: string
+  data?: ModelParameterSource[]
+}
+
+/**
+ * Per-source sync outcome (dry-run or applied).
+ */
+export interface ModelParameterSyncResult {
+  source: string
+  success: boolean
+  error?: string
+  created: number
+  updated: number
+  skipped: number
+  aliases: number
+  unmatched: number
+}
+
+export interface ModelParameterSyncRequest {
+  sources: string[]
+  dryRun: boolean
+}
+
+export interface ModelParameterSyncResponse {
+  success: boolean
+  message?: string
+  data?: {
+    dryRun: boolean
+    results: ModelParameterSyncResult[]
+  }
+}
+
+/**
+ * Resolved `(channel, upstream model) → canonical model` row shown in the
+ * mapping console view.
+ */
+export interface ModelMappingRow {
+  channelId: number
+  channelName: string
+  channelType: number
+  model: string // raw upstream name on that channel
+  /** The channel-declared/local name for this model (provenance). */
+  declaredModel: string
+  matched: boolean
+  canonicalId: number | null
+  canonicalKey: string | null
+  displayName: string | null
+  origin: 'manual' | 'auto' | null
+  confidence: number | null
+}
+
+export type ModelMappingStatus = 'matched' | 'unmatched' | 'all'
+
+export interface GetModelMappingsParams {
+  page?: number
+  page_size?: number
+  keyword?: string
+  status?: ModelMappingStatus
+}
+
+export interface ListModelMappingsResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: ModelMappingRow[]
+    total: number
+  }
+}
+
+/**
+ * Set/update a manual alias: `model` is the raw upstream name, `canonicalId`
+ * is the canonical model row it should resolve to.
+ */
+export interface SetModelMappingPayload {
+  model: string
+  canonicalId: number
+}
+
+/**
+ * Optional three-state boolean editor for canonical model parameters:
+ * `unknown` maps to null (distinct from `false`).
+ */
+export type TriStateBoolean = 'unknown' | 'yes' | 'no'
+
+/**
+ * One local upstream model on the overview tab, with its resolved canonical
+ * metadata and match status.
+ */
+export interface ModelOverviewRow {
+  model: string // upstream name
+  declaredModels: string[] // channel-declared/local names
+  matched: boolean
+  canonicalId: number | null
+  canonicalKey: string | null
+  displayName: string
+  contextLength: number | null
+  maxOutputTokens: number | null
+  capabilities: string[]
+  origin: 'manual' | 'auto' | null
+  confidence: number | null
+}
+
+export type ModelOverviewSortField = 'name' | 'context' | 'output'
+export type ModelOverviewSortOrder = 'asc' | 'desc'
+
+export interface GetModelOverviewParams {
+  keyword?: string
+  capability?: string
+  sort?: ModelOverviewSortField
+  order?: ModelOverviewSortOrder
+  page?: number
+  page_size?: number
+}
+
+export interface ListModelOverviewResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: ModelOverviewRow[]
+    total: number
+  }
+}
+
+/**
+ * Canonical model form schema (React Hook Form + Zod).
+ * Numeric fields are edited as strings and normalized on submit.
+ */
+export const canonicalModelFormSchema = z.object({
+  canonicalKey: z.string().trim().min(1, 'Canonical key is required'),
+  displayName: z.string().default(''),
+  vendor: z.string().default(''),
+  contextLength: z.string().default(''),
+  maxOutputTokens: z.string().default(''),
+  inputModalities: z.string().default(''),
+  outputModalities: z.string().default(''),
+  reasoning: z.enum(['unknown', 'yes', 'no']).default('unknown'),
+  reasoningEfforts: z.string().default(''),
+  toolCall: z.enum(['unknown', 'yes', 'no']).default('unknown'),
+  structuredOutput: z.enum(['unknown', 'yes', 'no']).default('unknown'),
+  attachment: z.enum(['unknown', 'yes', 'no']).default('unknown'),
+  knowledgeCutoff: z.string().default(''),
+  releaseDate: z.string().default(''),
+  parameterCount: z.string().default(''),
+  category: z.string().default(''),
+  tags: z.string().default(''),
+  priceInput: z.string().default(''),
+  priceOutput: z.string().default(''),
+})
+
+export type CanonicalModelFormValues = z.infer<typeof canonicalModelFormSchema>

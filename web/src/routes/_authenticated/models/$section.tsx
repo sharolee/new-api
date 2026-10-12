@@ -46,6 +46,18 @@ const modelsSearchSchema = z.object({
   dPageSize: z.number().optional().catch(10),
   dFilter: z.string().optional().catch(''),
   dStatus: z.array(z.string()).optional().catch([]),
+  // Model parameter library (canonical models)
+  pPage: z.number().optional().catch(1),
+  pPageSize: z.number().optional().catch(10),
+  pFilter: z.string().optional().catch(''),
+  pVendor: z.array(z.string()).optional().catch([]),
+  pCapability: z.array(z.string()).optional().catch([]),
+  pSource: z.array(z.string()).optional().catch([]),
+  // Model parameter library (name mappings)
+  mPage: z.number().optional().catch(1),
+  mPageSize: z.number().optional().catch(10),
+  mFilter: z.string().optional().catch(''),
+  mStatus: z.array(z.string()).optional().catch([]),
 })
 
 export const Route = createFileRoute('/_authenticated/models/$section')({

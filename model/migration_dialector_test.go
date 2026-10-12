@@ -184,6 +184,36 @@ func TestMigrationSchemaStability(t *testing.T) {
 				})
 			}
 
+			t.Run("model_parameter_tables_fresh", func(t *testing.T) {
+				require.NoError(t, db.Migrator().DropTable(&CanonicalModelParameter{}, &ModelParameterAlias{}))
+				require.NoError(t, db.AutoMigrate(&CanonicalModelParameter{}, &ModelParameterAlias{}))
+				recorder.reset()
+				require.NoError(t, db.AutoMigrate(&CanonicalModelParameter{}, &ModelParameterAlias{}))
+				assert.Empty(t, recorder.schemaMutations())
+				canonical := CanonicalModelParameter{
+					CanonicalKey:    "openai/gpt-5",
+					DisplayName:     "GPT-5",
+					Vendor:          "openai",
+					ContextLength:   256000,
+					InputModalities: modelParameterStringList{"text", "image"},
+				}
+				require.NoError(t, db.Create(&canonical).Error)
+				require.NoError(t, db.Create(&ModelParameterAlias{
+					NormalizedName: "gpt-5",
+					RawName:        "gpt-5",
+					CanonicalId:    canonical.Id,
+					Origin:         aliasOriginAuto,
+					Confidence:     resolutionConfidenceExact,
+				}).Error)
+				recorder.reset()
+				require.NoError(t, db.AutoMigrate(&CanonicalModelParameter{}, &ModelParameterAlias{}))
+				assert.Empty(t, recorder.schemaMutations())
+				var saved CanonicalModelParameter
+				require.NoError(t, db.First(&saved, canonical.Id).Error)
+				assert.Equal(t, canonical.CanonicalKey, saved.CanonicalKey)
+				assert.Equal(t, canonical.Vendor, saved.Vendor)
+			})
+
 			if dialect == "mysql" {
 				t.Run("decimal_default_and_real_changes", func(t *testing.T) {
 					const table = "migration_decimal_test"
@@ -215,6 +245,82 @@ func TestMigrationSchemaStability(t *testing.T) {
 					assert.Equal(t, []float64{12.345678, 1.25}, prices)
 				})
 			}
+		})
+	}
+}
+
+// TestMigrateDBDoubleStartIdempotency runs the full startup migration twice on
+// each supported database. The first pass starts from a database shaped by the
+// latest released version (the model-parameter tables are dropped first to
+// simulate the upgrade path), so it must create the missing tables. The second
+// pass must not emit any schema DDL, keep every index, and preserve a non-nil
+// list through the fully migrated schema.
+func TestMigrateDBDoubleStartIdempotency(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var dsn string
+			switch dialect {
+			case "sqlite":
+				dsn = "local"
+				previousPath := common.SQLitePath
+				common.SQLitePath = filepath.Join(t.TempDir(), "startup.db")
+				t.Cleanup(func() { common.SQLitePath = previousPath })
+			case "mysql":
+				dsn = os.Getenv("TEST_MYSQL_DSN")
+			case "postgres":
+				dsn = os.Getenv("TEST_POSTGRES_DSN")
+			}
+			if dsn == "" {
+				t.Skip("test database DSN is not configured")
+			}
+			t.Setenv("MIGRATION_TEST_DSN", dsn)
+			db, dbType, err := chooseDB("MIGRATION_TEST_DSN", false)
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = sqlDB.Close() })
+
+			previousDB, previousType := DB, common.MainDatabaseType()
+			DB = db
+			common.SetMainDatabaseType(dbType)
+			initCol()
+			t.Cleanup(func() {
+				DB = previousDB
+				common.SetMainDatabaseType(previousType)
+				initCol()
+			})
+
+			// Upgrade path: a database created by the latest released version
+			// has no model-parameter tables yet.
+			require.NoError(t, DB.Migrator().DropTable(&CanonicalModelParameter{}, &ModelParameterAlias{}))
+
+			recorder := &migrationSQLRecorder{}
+			DB = DB.Session(&gorm.Session{Logger: recorder})
+			require.NoError(t, migrateDB())
+
+			recorder.reset()
+			require.NoError(t, migrateDB())
+			assert.Empty(t, recorder.schemaMutations(), "a second startup must not emit schema DDL")
+
+			require.True(t, DB.Migrator().HasTable(&CanonicalModelParameter{}))
+			require.True(t, DB.Migrator().HasTable(&ModelParameterAlias{}))
+			require.True(t, DB.Migrator().HasIndex(&CanonicalModelParameter{}, "uk_model_parameter_canonical_key"))
+			require.True(t, DB.Migrator().HasIndex(&ModelParameterAlias{}, "uk_model_parameter_alias_name"))
+			require.True(t, DB.Migrator().HasIndex(&ModelParameterAlias{}, "idx_model_parameter_alias_canonical"))
+
+			canonical := CanonicalModelParameter{
+				CanonicalKey:    "startup/gpt-5",
+				DisplayName:     "GPT-5",
+				Vendor:          "openai",
+				ContextLength:   256000,
+				InputModalities: modelParameterStringList{"text", "image"},
+			}
+			require.NoError(t, DB.Create(&canonical).Error)
+			var saved CanonicalModelParameter
+			require.NoError(t, DB.First(&saved, canonical.Id).Error)
+			assert.Equal(t, canonical.CanonicalKey, saved.CanonicalKey)
+			assert.Equal(t, []string{"text", "image"}, []string(saved.InputModalities),
+				"a non-nil list must round-trip through the fully migrated schema")
 		})
 	}
 }

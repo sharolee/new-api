@@ -44,6 +44,18 @@ import type {
   AssignCategoriesPayload,
   AssignCategoriesResponse,
   GetAvailableChannelsResponse,
+  GetModelParametersParams,
+  ListModelParametersResponse,
+  ModelParameterItemResponse,
+  CanonicalModelParameterPayload,
+  ModelParameterSourcesResponse,
+  ModelParameterSyncRequest,
+  ModelParameterSyncResponse,
+  GetModelMappingsParams,
+  ListModelMappingsResponse,
+  SetModelMappingPayload,
+  GetModelOverviewParams,
+  ListModelOverviewResponse,
 } from './types'
 
 // ============================================================================
@@ -661,7 +673,9 @@ export async function getAvailableModels(
 export async function getAvailableModel(
   modelName: string
 ): Promise<{ success: boolean; message?: string; data?: AvailableModel }> {
-  const res = await api.get(`/api/models/available/${encodeURIComponent(modelName)}`)
+  const res = await api.get(
+    `/api/models/available/${encodeURIComponent(modelName)}`
+  )
   return res.data
 }
 
@@ -776,5 +790,116 @@ export async function deleteModels(
     remove_from_channels: removeFromChannels,
     remove_pricing: removePricing,
   })
+  return res.data
+}
+
+// ============================================================================
+// Model Parameter Library
+// ============================================================================
+
+/**
+ * List canonical model parameters with server-side filters.
+ */
+export async function getModelParameters(
+  params: GetModelParametersParams = {}
+): Promise<ListModelParametersResponse> {
+  const res = await api.get('/api/model_parameters', { params })
+  return res.data
+}
+
+/**
+ * Create a canonical model parameter manually.
+ */
+export async function createModelParameter(
+  data: CanonicalModelParameterPayload
+): Promise<ModelParameterItemResponse> {
+  const res = await api.post('/api/model_parameters', data)
+  return res.data
+}
+
+/**
+ * Update a canonical model parameter (marks it as manually overridden).
+ */
+export async function updateModelParameter(
+  id: number,
+  data: CanonicalModelParameterPayload
+): Promise<ModelParameterItemResponse> {
+  const res = await api.put(`/api/model_parameters/${id}`, data)
+  return res.data
+}
+
+/**
+ * Delete a canonical model parameter.
+ */
+export async function deleteModelParameter(id: number): Promise<{
+  success: boolean
+  message?: string
+  data: null
+}> {
+  const res = await api.delete(`/api/model_parameters/${id}`)
+  return res.data
+}
+
+/**
+ * List the sync sources available for the model parameter library.
+ */
+export async function getModelParameterSources(): Promise<ModelParameterSourcesResponse> {
+  const res = await api.get('/api/model_parameters/sources')
+  return res.data
+}
+
+/**
+ * Run (or dry-run) a sync from the selected sources.
+ */
+export async function syncModelParameters(
+  payload: ModelParameterSyncRequest
+): Promise<ModelParameterSyncResponse> {
+  const res = await api.post('/api/model_parameters/sync', payload)
+  return res.data
+}
+
+/**
+ * List `(channel, upstream model) → canonical model` mapping rows.
+ */
+export async function getModelMappings(
+  params: GetModelMappingsParams = {}
+): Promise<ListModelMappingsResponse> {
+  const res = await api.get('/api/model_parameters/mappings', { params })
+  return res.data
+}
+
+/**
+ * Create/update a manual alias: `model` resolves to `canonicalId`.
+ */
+export async function setModelMapping(
+  payload: SetModelMappingPayload
+): Promise<{ success: boolean; message?: string; data: null }> {
+  const res = await api.put('/api/model_parameters/mappings', payload)
+  return res.data
+}
+
+/**
+ * Clear a manual alias for the given upstream model name.
+ */
+export async function clearModelMapping(model: string): Promise<{
+  success: boolean
+  message?: string
+  data: null
+}> {
+  const res = await api.delete('/api/model_parameters/mappings', {
+    params: { model },
+  })
+  return res.data
+}
+
+/**
+ * List local upstream models with resolved canonical metadata, match status,
+ * context/params and capabilities. Server-side keyword, capability filter and
+ * sort on Model name / Context / Max Output (unmatched rows sort last).
+ */
+export async function getModelParameterOverview(
+  params: GetModelOverviewParams = {}
+): Promise<ListModelOverviewResponse> {
+  const res = await api.get('/api/model_parameters/overview', { params })
   return res.data
 }
