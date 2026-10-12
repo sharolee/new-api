@@ -580,33 +580,46 @@ func parseChannelModelMapping(mappingJSON string) map[string]string {
 	return modelMap
 }
 
-// ModelOverviewItem is one row of the aggregated overview view: a distinct
-// upstream model name with its canonical match (if any) and the declared
-// names that resolved to it.
-type ModelOverviewItem struct {
-	Model           string   `json:"model"`
-	DeclaredModels  []string `json:"declaredModels"`
-	Matched         bool     `json:"matched"`
-	CanonicalId     uint     `json:"canonicalId"`
-	CanonicalKey    string   `json:"canonicalKey"`
-	DisplayName     string   `json:"displayName"`
-	ContextLength   int      `json:"contextLength"`
-	MaxOutputTokens int      `json:"maxOutputTokens"`
-	Capabilities    []string `json:"capabilities"`
-	Origin          string   `json:"origin"`
-	Confidence      int      `json:"confidence"`
+// ModelOverviewChannel identifies a channel that declares an upstream model in
+// the overview: enough to label and filter a row without exposing secrets.
+type ModelOverviewChannel struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+	Type int    `json:"type"`
 }
 
-// ModelOverviewResult is the envelope body of the overview endpoint.
+// ModelOverviewItem is one row of the aggregated overview view: a distinct
+// upstream model name with its canonical match (if any), the declared names
+// that resolved to it, and the channels that declare it.
+type ModelOverviewItem struct {
+	Model           string                 `json:"model"`
+	DeclaredModels  []string               `json:"declaredModels"`
+	Channels        []ModelOverviewChannel `json:"channels"`
+	Matched         bool                   `json:"matched"`
+	CanonicalId     uint                   `json:"canonicalId"`
+	CanonicalKey    string                 `json:"canonicalKey"`
+	DisplayName     string                 `json:"displayName"`
+	ContextLength   int                    `json:"contextLength"`
+	MaxOutputTokens int                    `json:"maxOutputTokens"`
+	Capabilities    []string               `json:"capabilities"`
+	Origin          string                 `json:"origin"`
+	Confidence      int                    `json:"confidence"`
+}
+
+// ModelOverviewResult is the envelope body of the overview endpoint. Channels
+// lists every channel that declares at least one model, so the console can
+// build a channel filter whose options stay stable across other filters.
 type ModelOverviewResult struct {
-	Items []ModelOverviewItem `json:"items"`
-	Total int                 `json:"total"`
+	Items    []ModelOverviewItem    `json:"items"`
+	Total    int                    `json:"total"`
+	Channels []ModelOverviewChannel `json:"channels"`
 }
 
 // BuildChannelModelOverview aggregates distinct upstream model names across all
 // channels, each with its canonical match status and the declared names that
-// resolved to it.
-func BuildChannelModelOverview(keyword, capability, sort, order string, page, pageSize int) (*ModelOverviewResult, error) {
+// resolved to it. When channelId > 0 only models declared by that channel are
+// kept; the returned channel list always covers every declaring channel.
+func BuildChannelModelOverview(keyword, capability string, channelId int, sort, order string, page, pageSize int) (*ModelOverviewResult, error) {
 	index, err := loadCanonicalResolutionIndex(DB)
 	if err != nil {
 		return nil, err
@@ -618,10 +631,13 @@ func BuildChannelModelOverview(keyword, capability, sort, order string, page, pa
 	type overviewAgg struct {
 		model          string
 		declaredModels map[string]struct{}
+		channels       map[int]ModelOverviewChannel
 		resolution     *CanonicalResolution
 	}
 	aggMap := make(map[string]*overviewAgg)
+	allChannels := make(map[int]ModelOverviewChannel)
 	for _, channel := range channels {
+		channelBrief := ModelOverviewChannel{Id: channel.Id, Name: channel.Name, Type: channel.Type}
 		modelMap := parseChannelModelMapping(channel.GetModelMapping())
 		for _, declared := range channel.GetModels() {
 			declaredName := strings.TrimSpace(declared)
@@ -637,12 +653,16 @@ func BuildChannelModelOverview(keyword, capability, sort, order string, page, pa
 				agg = &overviewAgg{
 					model:          upstreamName,
 					declaredModels: make(map[string]struct{}),
+					channels:       make(map[int]ModelOverviewChannel),
 				}
 				aggMap[upstreamName] = agg
 			}
 			agg.declaredModels[declaredName] = struct{}{}
+			agg.channels[channel.Id] = channelBrief
+			allChannels[channel.Id] = channelBrief
 		}
 	}
+	overviewChannels := sortedOverviewChannels(allChannels)
 
 	// Build items with canonical resolution.
 	items := make([]ModelOverviewItem, 0, len(aggMap))
@@ -656,6 +676,7 @@ func BuildChannelModelOverview(keyword, capability, sort, order string, page, pa
 		item := ModelOverviewItem{
 			Model:          agg.model,
 			DeclaredModels: declaredList,
+			Channels:       sortedOverviewChannels(agg.channels),
 			Capabilities:   []string{},
 		}
 		if resolution := index.resolve(agg.model); resolution.IsMatched() {
@@ -708,6 +729,20 @@ func BuildChannelModelOverview(keyword, capability, sort, order string, page, pa
 		}
 	}
 
+	// Channel filter: keep only rows declared by the given channel.
+	if channelId > 0 {
+		filtered := make([]ModelOverviewItem, 0, len(items))
+		for _, item := range items {
+			for _, channel := range item.Channels {
+				if channel.Id == channelId {
+					filtered = append(filtered, item)
+					break
+				}
+			}
+		}
+		items = filtered
+	}
+
 	// Sort: unmatched rows always after matched rows, regardless of order.
 	desc := strings.ToLower(strings.TrimSpace(order)) == "desc"
 	sortField := strings.ToLower(strings.TrimSpace(sort))
@@ -752,7 +787,18 @@ func BuildChannelModelOverview(keyword, capability, sort, order string, page, pa
 	if end > len(items) {
 		end = len(items)
 	}
-	return &ModelOverviewResult{Items: items[start:end], Total: total}, nil
+	return &ModelOverviewResult{Items: items[start:end], Total: total, Channels: overviewChannels}, nil
+}
+
+// sortedOverviewChannels orders the channel briefs of an overview aggregation by
+// channel id for stable output and deterministic JSON.
+func sortedOverviewChannels(channels map[int]ModelOverviewChannel) []ModelOverviewChannel {
+	result := make([]ModelOverviewChannel, 0, len(channels))
+	for _, channel := range channels {
+		result = append(result, channel)
+	}
+	slices.SortFunc(result, func(a, b ModelOverviewChannel) int { return a.Id - b.Id })
+	return result
 }
 
 // canonicalCapabilities returns the list of capability keys a canonical row

@@ -135,8 +135,9 @@ func ListModelParameterMappings(c *gin.Context) {
 func ListModelParameterOverview(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	channelId, _ := strconv.Atoi(c.Query("channel_id"))
 	result, err := model.BuildChannelModelOverview(
-		c.Query("keyword"), c.Query("capability"),
+		c.Query("keyword"), c.Query("capability"), channelId,
 		c.Query("sort"), c.Query("order"),
 		page, pageSize,
 	)
@@ -144,7 +145,7 @@ func ListModelParameterOverview(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"items": result.Items, "total": result.Total})
+	common.ApiSuccess(c, gin.H{"items": result.Items, "total": result.Total, "channels": result.Channels})
 }
 
 // UpdateModelParameterMapping creates or replaces a manual alias.

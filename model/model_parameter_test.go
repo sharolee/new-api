@@ -593,7 +593,7 @@ func TestBuildChannelModelOverviewDedup(t *testing.T) {
 	}
 	require.NoError(t, DB.Create(ch2).Error)
 
-	result, err := BuildChannelModelOverview("", "", "", "", 1, 50)
+	result, err := BuildChannelModelOverview("", "", 0, "", "", 1, 50)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -652,7 +652,7 @@ func TestBuildChannelModelOverviewCapabilityFilter(t *testing.T) {
 	require.NoError(t, DB.Create(ch).Error)
 
 	// Capability filter "reasoning" excludes unmatched rows.
-	result, err := BuildChannelModelOverview("", "reasoning", "", "", 1, 50)
+	result, err := BuildChannelModelOverview("", "reasoning", 0, "", "", 1, 50)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 1, result.Total)
@@ -660,7 +660,7 @@ func TestBuildChannelModelOverviewCapabilityFilter(t *testing.T) {
 	assert.True(t, result.Items[0].Matched)
 
 	// Capability filter "vision" excludes the matched gpt-5 (no vision) and unmatched.
-	result, err = BuildChannelModelOverview("", "vision", "", "", 1, 50)
+	result, err = BuildChannelModelOverview("", "vision", 0, "", "", 1, 50)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 0, result.Total)
@@ -696,7 +696,7 @@ func TestBuildChannelModelOverviewSortUnmatchedLast(t *testing.T) {
 	require.NoError(t, DB.Create(ch).Error)
 
 	// Sort by context asc: matched rows (claude-4=200000 > gpt-5=128000) first, then unmatched.
-	result, err := BuildChannelModelOverview("", "", "context", "asc", 1, 50)
+	result, err := BuildChannelModelOverview("", "", 0, "context", "asc", 1, 50)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 3, result.Total)
@@ -706,7 +706,7 @@ func TestBuildChannelModelOverviewSortUnmatchedLast(t *testing.T) {
 	assert.Equal(t, "unknown-model", result.Items[2].Model)
 
 	// Sort by context desc: matched rows desc (claude-4 > gpt-5), then unmatched last.
-	result, err = BuildChannelModelOverview("", "", "context", "desc", 1, 50)
+	result, err = BuildChannelModelOverview("", "", 0, "context", "desc", 1, 50)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 3, result.Total)
@@ -726,7 +726,7 @@ func TestBuildChannelModelOverviewPagination(t *testing.T) {
 	}
 	require.NoError(t, DB.Create(ch).Error)
 
-	result, err := BuildChannelModelOverview("", "", "name", "asc", 1, 2)
+	result, err := BuildChannelModelOverview("", "", 0, "name", "asc", 1, 2)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 3, result.Total)
@@ -734,7 +734,7 @@ func TestBuildChannelModelOverviewPagination(t *testing.T) {
 	assert.Equal(t, "model-a", result.Items[0].Model)
 	assert.Equal(t, "model-b", result.Items[1].Model)
 
-	result, err = BuildChannelModelOverview("", "", "name", "asc", 2, 2)
+	result, err = BuildChannelModelOverview("", "", 0, "name", "asc", 2, 2)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 3, result.Total)
@@ -766,7 +766,7 @@ func TestBuildChannelModelOverviewEmptyCapabilitiesJson(t *testing.T) {
 	}
 	require.NoError(t, DB.Create(ch).Error)
 
-	result, err := BuildChannelModelOverview("", "", "", "", 1, 50)
+	result, err := BuildChannelModelOverview("", "", 0, "", "", 1, 50)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 2, result.Total)
@@ -804,4 +804,49 @@ func TestBuildChannelModelOverviewEmptyCapabilitiesJson(t *testing.T) {
 	row, err := common.Marshal(matchedItem)
 	require.NoError(t, err)
 	assert.Contains(t, string(row), `"capabilities":[]`)
+}
+
+func TestBuildChannelModelOverviewChannels(t *testing.T) {
+	setupChannelModelMappingTest(t)
+
+	// Two channels declare distinct models plus one shared model. Ids are
+	// deliberately non-sequential so ordering is proven, not incidental.
+	ch1 := &Channel{Id: 3, Name: "alpha", Type: 1, Models: "gpt-5,shared-model"}
+	ch2 := &Channel{Id: 5, Name: "beta", Type: 2, Models: "claude-4,shared-model"}
+	require.NoError(t, DB.Create(ch1).Error)
+	require.NoError(t, DB.Create(ch2).Error)
+
+	result, err := BuildChannelModelOverview("", "", 0, "name", "asc", 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 3, result.Total)
+
+	// Result-level channel options cover every declaring channel, sorted by id.
+	require.Equal(t, []ModelOverviewChannel{
+		{Id: 3, Name: "alpha", Type: 1},
+		{Id: 5, Name: "beta", Type: 2},
+	}, result.Channels)
+
+	// Each row carries its declaring channels, sorted by id.
+	byModel := make(map[string]ModelOverviewItem, len(result.Items))
+	for _, item := range result.Items {
+		byModel[item.Model] = item
+	}
+	assert.Equal(t, []ModelOverviewChannel{{Id: 3, Name: "alpha", Type: 1}}, byModel["gpt-5"].Channels)
+	assert.Equal(t, []ModelOverviewChannel{{Id: 5, Name: "beta", Type: 2}}, byModel["claude-4"].Channels)
+	assert.Equal(t, []ModelOverviewChannel{
+		{Id: 3, Name: "alpha", Type: 1},
+		{Id: 5, Name: "beta", Type: 2},
+	}, byModel["shared-model"].Channels)
+
+	// Channel filter keeps only models declared by channel 5, while the option
+	// list still exposes both channels so the filter stays switchable.
+	filtered, err := BuildChannelModelOverview("", "", 5, "name", "asc", 1, 50)
+	require.NoError(t, err)
+	require.NotNil(t, filtered)
+	require.Equal(t, 2, filtered.Total)
+	require.Len(t, filtered.Items, 2)
+	assert.Equal(t, "claude-4", filtered.Items[0].Model)
+	assert.Equal(t, "shared-model", filtered.Items[1].Model)
+	assert.Equal(t, result.Channels, filtered.Channels)
 }

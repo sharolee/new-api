@@ -93,10 +93,12 @@ export function ModelParameterOverviewView() {
     globalFilter: { enabled: true, key: 'oFilter' },
     columnFilters: [
       { columnId: 'capability', searchKey: 'oCapability', type: 'array' },
+      { columnId: 'channel', searchKey: 'oChannel', type: 'array' },
     ],
   })
 
   const capabilityFilter = firstFilter(columnFilters, 'capability')
+  const channelFilter = firstFilter(columnFilters, 'channel')
 
   const sortParams = useMemo(() => {
     const active = sorting[0]
@@ -117,6 +119,7 @@ export function ModelParameterOverviewView() {
   const queryParams: GetModelOverviewParams = {
     keyword: globalFilter?.trim() || undefined,
     capability: capabilityFilter,
+    channel_id: channelFilter,
     ...sortParams,
     page: pagination.pageIndex + 1,
     page_size: pagination.pageSize,
@@ -130,6 +133,17 @@ export function ModelParameterOverviewView() {
 
   const items = data?.data?.items ?? []
   const totalCount = data?.data?.total ?? 0
+
+  const channelOptions = useMemo(() => {
+    const channels = data?.data?.channels ?? []
+    return [
+      { label: t('All channels'), value: 'all' },
+      ...channels.map((channel) => ({
+        label: channel.name,
+        value: String(channel.id),
+      })),
+    ]
+  }, [data?.data?.channels, t])
 
   const columns: ColumnDef<ModelOverviewRow>[] = useMemo(() => {
     return [
@@ -231,6 +245,25 @@ export function ModelParameterOverviewView() {
               {t('Unmatched')}
             </span>
           ),
+      },
+      {
+        accessorKey: 'channels',
+        id: 'channel',
+        header: t('Channel'),
+        size: 180,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const channels = row.original.channels ?? []
+          if (channels.length === 0) {
+            return <span className='text-muted-foreground text-sm'>—</span>
+          }
+          const names = channels.map((channel) => channel.name).join(', ')
+          return (
+            <span className='block truncate text-sm' title={names}>
+              {names}
+            </span>
+          )
+        },
       },
       {
         accessorKey: 'capabilities',
@@ -337,6 +370,12 @@ export function ModelParameterOverviewView() {
                 value: option.value,
               })),
             ],
+            singleSelect: true,
+          },
+          {
+            columnId: 'channel',
+            title: t('Channel'),
+            options: channelOptions,
             singleSelect: true,
           },
         ],

@@ -745,6 +745,7 @@ export type TriStateBoolean = 'unknown' | 'yes' | 'no'
 export interface ModelOverviewRow {
   model: string // upstream name
   declaredModels: string[] // channel-declared/local names
+  channels: ModelOverviewChannel[]
   matched: boolean
   canonicalId: number | null
   canonicalKey: string | null
@@ -756,12 +757,19 @@ export interface ModelOverviewRow {
   confidence: number | null
 }
 
+export interface ModelOverviewChannel {
+  id: number
+  name: string
+  type: number
+}
+
 export type ModelOverviewSortField = 'name' | 'context' | 'output'
 export type ModelOverviewSortOrder = 'asc' | 'desc'
 
 export interface GetModelOverviewParams {
   keyword?: string
   capability?: string
+  channel_id?: string
   sort?: ModelOverviewSortField
   order?: ModelOverviewSortOrder
   page?: number
@@ -774,6 +782,7 @@ export interface ListModelOverviewResponse {
   data?: {
     items: ModelOverviewRow[]
     total: number
+    channels?: ModelOverviewChannel[]
   }
 }
 

@@ -24,7 +24,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '@/lib/api'
 
 import { ModelParameterOverviewView } from '../components/model-parameter-overview-view'
-import type { ModelOverviewRow } from '../types'
+import type { ModelOverviewChannel, ModelOverviewRow } from '../types'
 
 const stableSearch: Record<string, unknown> = {}
 
@@ -39,6 +39,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => ({
 const matchedRow: ModelOverviewRow = {
   model: 'gpt-5',
   declaredModels: ['freespeed'],
+  channels: [{ id: 1, name: 'primary-channel', type: 1 }],
   matched: true,
   canonicalId: 10,
   canonicalKey: 'openai/gpt-5',
@@ -53,6 +54,7 @@ const matchedRow: ModelOverviewRow = {
 const unmatchedRow: ModelOverviewRow = {
   model: 'mystery-model',
   declaredModels: ['mystery-local'],
+  channels: [],
   matched: false,
   canonicalId: null,
   canonicalKey: null,
@@ -64,11 +66,22 @@ const unmatchedRow: ModelOverviewRow = {
   confidence: null,
 }
 
-function renderView(items: ModelOverviewRow[], total = items.length) {
+// Filter options; 'zeta-channel' is deliberately absent from the row fixtures
+// so the popover option is the only element carrying that text.
+const overviewChannels: ModelOverviewChannel[] = [
+  { id: 1, name: 'primary-channel', type: 1 },
+  { id: 3, name: 'zeta-channel', type: 1 },
+]
+
+function renderView(
+  items: ModelOverviewRow[],
+  total = items.length,
+  channels: ModelOverviewChannel[] = overviewChannels
+) {
   vi.spyOn(api, 'get').mockResolvedValue({
     data: {
       success: true,
-      data: { items, total },
+      data: { items, total, channels },
     },
   })
   const client = new QueryClient({
@@ -151,6 +164,35 @@ describe('model parameter overview view', () => {
         '/api/model_parameters/overview',
         expect.objectContaining({
           params: expect.objectContaining({ capability: 'reasoning' }),
+        })
+      )
+    )
+
+    client.clear()
+  })
+
+  it('renders the channel names that declare a row', async () => {
+    const client = renderView([matchedRow])
+
+    await screen.findByText('gpt-5')
+    expect(screen.getByText('primary-channel')).toBeInTheDocument()
+
+    client.clear()
+  })
+
+  it('refetches with the channel_id param when the channel filter is selected', async () => {
+    const client = renderView([matchedRow])
+    const user = userEvent.setup()
+
+    await screen.findByText('gpt-5')
+    await user.click(screen.getByRole('button', { name: 'Channel' }))
+    await user.click(await screen.findByText('zeta-channel'))
+
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith(
+        '/api/model_parameters/overview',
+        expect.objectContaining({
+          params: expect.objectContaining({ channel_id: '3' }),
         })
       )
     )
