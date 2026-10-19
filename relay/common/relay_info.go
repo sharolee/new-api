@@ -462,6 +462,13 @@ func GenRelayInfoRerank(c *gin.Context, request *dto.RerankRequest) *RelayInfo {
 	return info
 }
 
+func GenRelayInfoDecision(c *gin.Context, request *dto.DecisionRequest) *RelayInfo {
+	info := genBaseRelayInfo(c, request)
+	info.RelayMode = relayconstant.RelayModeDecisions
+	info.RelayFormat = types.RelayFormatDecision
+	return info
+}
+
 func GenRelayInfoOpenAIAudio(c *gin.Context, request dto.Request) *RelayInfo {
 	info := genBaseRelayInfo(c, request)
 	info.RelayFormat = types.RelayFormatOpenAIAudio
@@ -686,6 +693,12 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 			break
 		}
 		err = errors.New("request is not a RerankRequest")
+	case types.RelayFormatDecision:
+		if request, ok := request.(*dto.DecisionRequest); ok {
+			info = GenRelayInfoDecision(c, request)
+			break
+		}
+		err = errors.New("request is not a DecisionRequest")
 	case types.RelayFormatGemini:
 		info = GenRelayInfoGemini(c, request)
 	case types.RelayFormatEmbedding:

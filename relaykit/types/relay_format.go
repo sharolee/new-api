@@ -13,6 +13,7 @@ const (
 	RelayFormatOpenAIImage                           = "openai_image"
 	RelayFormatOpenAIRealtime                        = "openai_realtime"
 	RelayFormatRerank                                = "rerank"
+	RelayFormatDecision                              = "decision"
 	RelayFormatEmbedding                             = "embedding"
 
 	RelayFormatTask    = "task"
