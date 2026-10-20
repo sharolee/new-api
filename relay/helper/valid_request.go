@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +49,8 @@ func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dt
 		request, err = GetAndValidateEmbeddingRequest(c, relayMode)
 	case types.RelayFormatRerank:
 		request, err = GetAndValidateRerankRequest(c)
+	case types.RelayFormatDecision:
+		request, err = GetAndValidateDecisionRequest(c)
 	case types.RelayFormatOpenAIAudio:
 		request, err = GetAndValidAudioRequest(c, relayMode)
 	case types.RelayFormatOpenAIRealtime:
@@ -95,6 +98,41 @@ func GetAndValidateRerankRequest(c *gin.Context) (*dto.RerankRequest, error) {
 		return nil, types.NewError(fmt.Errorf("documents is empty"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 	return rerankRequest, nil
+}
+
+func GetAndValidateDecisionRequest(c *gin.Context) (*dto.DecisionRequest, error) {
+	request := &dto.DecisionRequest{}
+	if err := common.UnmarshalBodyReusable(c, request); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	state := bytes.TrimSpace(request.State)
+	if len(state) == 0 || bytes.Equal(state, []byte("null")) || bytes.Equal(state, []byte(`""`)) {
+		return nil, types.NewError(errors.New("state is required"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	if len(request.Questions) == 0 {
+		return nil, types.NewError(errors.New("questions must be a nonempty object"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	if len(request.Images) > dto.MaxDecisionImages {
+		return nil, types.NewError(fmt.Errorf("images must not exceed %d", dto.MaxDecisionImages), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	if request.Stream != nil && *request.Stream {
+		return nil, types.NewError(errors.New("stream is not supported"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	if request.ThinkBudget != nil && (*request.ThinkBudget < dto.DecisionThinkBudgetMin || *request.ThinkBudget > dto.DecisionThinkBudgetMax) {
+		return nil, types.NewError(fmt.Errorf("think_budget must be between %d and %d", dto.DecisionThinkBudgetMin, dto.DecisionThinkBudgetMax), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+	}
+	rawBody, err := storage.Bytes()
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+	}
+	request.RawBody = rawBody
+	return request, nil
 }
 
 func GetAndValidateEmbeddingRequest(c *gin.Context, relayMode int) (*dto.EmbeddingRequest, error) {

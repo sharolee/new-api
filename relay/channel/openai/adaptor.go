@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/samber/lo"
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -177,6 +178,14 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		url = strings.Replace(url, "{model}", info.UpstreamModelName, -1)
 		return url, nil
 	default:
+		if info.RelayFormat == types.RelayFormatDecision {
+			// The Jev-compatible alias is gateway-side only; StartLux exposes
+			// the same capability at /v1/decisions.
+			if rest, ok := strings.CutPrefix(info.RequestURLPath, "/v1/systemone"); ok {
+				return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, "/v1/decisions"+rest, info.ChannelType), nil
+			}
+			return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, info.RequestURLPath, info.ChannelType), nil
+		}
 		if (info.RelayFormat == types.RelayFormatClaude || info.RelayFormat == types.RelayFormatGemini) &&
 			info.RelayMode != relayconstant.RelayModeResponses &&
 			info.RelayMode != relayconstant.RelayModeResponsesCompact {
@@ -442,6 +451,31 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
 	return request, nil
+}
+
+// ConvertDecisionRequest rewrites only the model field of the raw decision
+// body so unknown protocol fields survive unchanged.
+func (a *Adaptor) ConvertDecisionRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.DecisionRequest) (any, error) {
+	if request == nil {
+		return nil, errors.New("request is nil")
+	}
+	body := request.RawBody
+	if len(body) == 0 {
+		// RawBody is filled by the validator; fall back to the parsed fields.
+		jsonData, err := common.Marshal(request)
+		if err != nil {
+			return nil, err
+		}
+		body = jsonData
+	}
+	if info.UpstreamModelName == "" {
+		return json.RawMessage(body), nil
+	}
+	patched, err := sjson.SetBytes(body, "model", info.UpstreamModelName)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(patched), nil
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
@@ -776,6 +810,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		}
 	case relayconstant.RelayModeRerank:
 		usage, err = common_handler.RerankHandler(c, info, resp)
+	case relayconstant.RelayModeDecisions:
+		usage, err = common_handler.DecisionHandler(c, resp)
 	case relayconstant.RelayModeResponses:
 		if info.IsStream {
 			usage, err = OaiResponsesStreamHandler(c, info, resp)
