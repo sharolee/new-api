@@ -191,6 +191,7 @@ const endpointTypeOptions: Array<{ value: string; label: string }> = [
     label: 'Image Generation (/v1/images/generations)',
   },
   { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
+  { value: 'decision', label: 'Decision (/v1/decisions)' },
 ]
 
 const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
@@ -198,6 +199,7 @@ const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
   'image-generation',
   'jina-rerank',
   'openai-response-compact',
+  'decision',
 ])
 
 const MODEL_PRICE_ERROR_CODE = 'model_price_error'

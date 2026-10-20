@@ -198,6 +198,8 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeDecision:
+			relayFormat = types.RelayFormatDecision
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -369,6 +371,22 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				context:     c,
 				localErr:    errors.New("invalid response compaction request type"),
 				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
+	case relayconstant.RelayModeDecisions:
+		// Decision 请求 - request 已经是正确的类型
+		if decisionReq, ok := request.(*dto.DecisionRequest); ok {
+			if converter, canConvert := adaptor.(relay.DecisionRequestConverter); canConvert {
+				convertedRequest, err = converter.ConvertDecisionRequest(c, info, decisionReq)
+			} else {
+				// 无 decision 转换器的 adaptor 原样转发请求体
+				convertedRequest = decisionReq.RawBody
+			}
+		} else {
+			return testResult{
+				context:     c,
+				localErr:    errors.New("invalid decision request type"),
+				newAPIError: types.NewError(errors.New("invalid decision request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	default:
@@ -763,6 +781,18 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				GenerationConfig: dto.GeminiChatGenerationConfig{
 					MaxOutputTokens: lo.ToPtr(uint(3000)),
 				},
+			}
+		case constant.EndpointTypeDecision:
+			// 返回 DecisionRequest；RawBody 为线上验证可用的 StartLux 请求形状
+			// （choice 问题必须带 instructions 与 criteria，仅靠 Questions 字段会被上游拒绝），
+			// ConvertDecisionRequest 只改写 model 字段，未知协议字段随 RawBody 原样转发
+			return &dto.DecisionRequest{
+				Model: model,
+				State: json.RawMessage(`"customer charged twice for one order"`),
+				Questions: map[string]dto.DecisionQuestion{
+					"team": {Type: "choice"},
+				},
+				RawBody: json.RawMessage(`{"model":"` + model + `","state":"customer charged twice for one order","questions":{"team":{"type":"choice","instructions":"Route the ticket.","criteria":{"billing":"issues about payment or charges","shipping":"issues about delivery"}}}}`),
 			}
 		case constant.EndpointTypeOpenAI:
 			req := &dto.GeneralOpenAIRequest{
