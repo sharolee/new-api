@@ -242,7 +242,10 @@ function LastTestSummary({ channel }: { channel: Channel }) {
   const responseLabel = formatResponseTime(responseTime, t)
 
   return (
-    <div className='flex flex-wrap items-center gap-x-6 gap-y-1 text-xs'>
+    <section
+      aria-label={t('Last test summary')}
+      className='flex flex-wrap items-center gap-x-6 gap-y-1 text-xs'
+    >
       <span className='text-muted-foreground font-medium'>
         {t('Last Tested')}
       </span>
@@ -278,7 +281,7 @@ function LastTestSummary({ channel }: { channel: Channel }) {
         copyable={false}
         showDot={false}
       />
-    </div>
+    </section>
   )
 }
 
