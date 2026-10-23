@@ -75,16 +75,21 @@ import { Switch } from '@/components/ui/switch'
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
+import { formatTimestampToDate } from '@/lib/format'
 
 import { updateChannel } from '../../api'
 import {
   channelsQueryKeys,
+  formatRelativeTime,
   formatResponseTime,
+  getResponseTimeConfig,
   handleTestChannel,
 } from '../../lib'
 import type {
@@ -220,6 +225,61 @@ type FailureDetailsState = {
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+}
+
+function LastTestSummary({ channel }: { channel: Channel }) {
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const testTime = channel.test_time
+  const responseTime = channel.response_time
+  const hasTestTime = testTime && testTime !== 0
+
+  const timeText = hasTestTime
+    ? formatRelativeTime(testTime, locale)
+    : t('Never')
+  const fullDate = hasTestTime ? formatTimestampToDate(testTime) : ''
+  const responseConfig = getResponseTimeConfig(responseTime)
+  const responseLabel = formatResponseTime(responseTime, t)
+
+  return (
+    <div className='flex flex-wrap items-center gap-x-6 gap-y-1 text-xs'>
+      <span className='text-muted-foreground font-medium'>
+        {t('Last Tested')}
+      </span>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <StatusBadge
+                label={timeText}
+                variant='neutral'
+                size='sm'
+                copyable={false}
+                showDot={false}
+              />
+            }
+          />
+          <TooltipContent side='top'>
+            {hasTestTime ? (
+              <p className='font-mono text-sm'>{fullDate}</p>
+            ) : (
+              <p>{t('Never')}</p>
+            )}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <span className='text-muted-foreground font-medium'>
+        {t('Response')}
+      </span>
+      <StatusBadge
+        label={responseLabel}
+        variant={responseConfig.variant}
+        size='sm'
+        copyable={false}
+        showDot={false}
+      />
+    </div>
+  )
 }
 
 function normalizeInlineError(errorText: string) {
@@ -1016,6 +1076,8 @@ function ChannelTestDialogContent({
               </p>
             </div>
           </div>
+
+          <LastTestSummary channel={currentRow} />
 
           <div className='space-y-3 max-sm:has-[div[role="toolbar"]]:pb-16'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
