@@ -23,6 +23,8 @@ import type {
   QuotaDataItem,
   ProcessedChartData,
   ProcessedUserChartData,
+  ProcessedTokenChartData,
+  TokenQuotaDataItem,
 } from '@/features/dashboard/types'
 import { getCurrencyDisplay } from '@/lib/currency'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
@@ -1220,5 +1222,323 @@ export function processUserChartData(
       background: { fill: 'transparent' },
       animation: true,
     },
+  }
+}
+
+/**
+ * Process token-level quota data into chart specs for the token analytics page.
+ *
+ * Mirrors processChartData but groups by token_name instead of model_name,
+ * producing trend (area), proportion (pie), and ranking (bar) specs.
+ */
+export function processTokenChartData(
+  data: TokenQuotaDataItem[],
+  timeGranularity: TimeGranularity = 'day',
+  t?: TFunction,
+  chartCornerRadius?: number
+): ProcessedTokenChartData {
+  const tt: TFunction = t ?? ((x) => x)
+  const otherLabel = tt('Other')
+
+  const formatInt = (value: number) =>
+    Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
+  const formatQuotaTotal = (value: number) => renderQuotaCompat(value, 2)
+  const TOKENS_PER_K = 1000
+  const formatTokenK = (rawTokens: number) => {
+    const k = rawTokens / TOKENS_PER_K
+    return `${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(k)} k`
+  }
+
+  if (!data || data.length === 0) {
+    return {
+      spec_token_trend: {
+        type: 'area',
+        data: [{ id: 'tokenTrendData', values: [] }],
+        xField: 'Time',
+        yField: 'Count',
+        seriesField: 'Token',
+        legends: { visible: true, selectMode: 'single' },
+        title: { visible: true, text: tt('Call Trend'), subtext: tt('No data available') },
+      },
+      spec_token_proportion: {
+        type: 'pie',
+        data: [{ id: 'tokenPieData', values: [] }],
+        outerRadius: 0.8,
+        innerRadius: 0.5,
+        padAngle: 0.6,
+        valueField: 'value',
+        categoryField: 'type',
+        title: { visible: true, text: tt('Call Count Distribution'), subtext: tt('No data available') },
+        legends: { visible: false },
+        label: { visible: false },
+      },
+      spec_token_ranking: {
+        type: 'bar',
+        data: [{ id: 'tokenRankData', values: [] }],
+        xField: 'Token',
+        yField: 'Count',
+        seriesField: 'Token',
+        legends: { visible: true, selectMode: 'single' },
+        title: { visible: true, text: tt('Call Count Ranking'), subtext: tt('No data available') },
+      },
+      totalCountDisplay: formatInt(0),
+      totalQuotaDisplay: formatQuotaTotal(0),
+      totalTokensDisplay: formatTokenK(0),
+    }
+  }
+
+  // Aggregate by time and token
+  const timeTokenMap = new Map<
+    string,
+    Map<string, { quota: number; count: number; tokens: number }>
+  >()
+  const tokenTotalsMap = new Map<
+    string,
+    { quota: number; count: number; tokens: number }
+  >()
+
+  data.forEach((item) => {
+    const timestamp = Number(item.created_at)
+    const timeKey = formatChartTime(timestamp, timeGranularity)
+    const token = item.token_name || `#${item.token_id}`
+    const quota = Number(item.quota) || 0
+    const count = Number(item.count) || 0
+    const tokens = Number(item.token_used) || 0
+
+    if (!timeTokenMap.has(timeKey)) {
+      timeTokenMap.set(timeKey, new Map())
+    }
+    const tokenMap = timeTokenMap.get(timeKey)
+    if (!tokenMap) return
+    const existing = tokenMap.get(token) || { quota: 0, count: 0, tokens: 0 }
+    tokenMap.set(token, {
+      quota: existing.quota + quota,
+      count: existing.count + count,
+      tokens: existing.tokens + tokens,
+    })
+
+    const totalExisting = tokenTotalsMap.get(token) || {
+      quota: 0,
+      count: 0,
+      tokens: 0,
+    }
+    tokenTotalsMap.set(token, {
+      quota: totalExisting.quota + quota,
+      count: totalExisting.count + count,
+      tokens: totalExisting.tokens + tokens,
+    })
+  })
+
+  const allTokens = [...tokenTotalsMap.keys()]
+  const sortedTimes = [...timeTokenMap.keys()].sort()
+  const sortedTokens = [...allTokens].sort()
+  const tokenColorDomain = [...new Set([...sortedTokens, otherLabel])]
+  const tokenColorRange = getDashboardChartColors(tokenColorDomain.length)
+  const tokenColor = {
+    type: 'ordinal' as const,
+    domain: tokenColorDomain,
+    range: tokenColorRange,
+  }
+
+  // Pad time points
+  const MAX_TREND_POINTS = MAX_CHART_TREND_POINTS
+  const fillTimePoints = (times: string[]) => {
+    if (times.length >= MAX_TREND_POINTS) return times
+    const lastTime = Math.max(
+      ...data.map((item) => Number(item.created_at) || 0)
+    )
+    let intervalSec: number
+    if (timeGranularity === 'week') {
+      intervalSec = 604800
+    } else if (timeGranularity === 'day') {
+      intervalSec = 86400
+    } else {
+      intervalSec = 3600
+    }
+    return Array.from({ length: MAX_TREND_POINTS }, (_, i) =>
+      formatChartTime(
+        lastTime - (MAX_TREND_POINTS - 1 - i) * intervalSec,
+        timeGranularity
+      )
+    )
+  }
+  const chartTimes = fillTimePoints(sortedTimes)
+
+  const totalCount = [...tokenTotalsMap.values()].reduce(
+    (sum, x) => sum + (Number(x.count) || 0),
+    0
+  )
+  const totalQuotaRaw = [...tokenTotalsMap.values()].reduce(
+    (sum, x) => sum + (Number(x.quota) || 0),
+    0
+  )
+  const totalTokensRaw = [...tokenTotalsMap.values()].reduce(
+    (sum, x) => sum + (Number(x.tokens) || 0),
+    0
+  )
+
+  // Pie chart: token call count proportion
+  const pieValues = [...tokenTotalsMap.entries()]
+    .map(([token, stats]) => ({
+      type: token,
+      value: Number(stats.count) || 0,
+    }))
+    .sort((a, b) => b.value - a.value)
+
+  // Trend area: top tokens + "Other" bucket
+  const MAX_TREND_TOKENS = 20
+  const rankedTrendTokens = [...tokenTotalsMap.entries()]
+    .map(([token, stats]) => ({
+      Token: token,
+      Count: Number(stats.count) || 0,
+    }))
+    .sort((a, b) => b.Count - a.Count)
+  const topTrendTokens = rankedTrendTokens
+    .slice(0, MAX_TREND_TOKENS)
+    .map((item) => item.Token)
+  const otherTrendTokens = rankedTrendTokens
+    .slice(MAX_TREND_TOKENS)
+    .map((item) => item.Token)
+
+  const trendValues: Array<{
+    Time: string
+    Token: string
+    Count: number
+  }> = []
+  chartTimes.forEach((time) => {
+    const timeData = topTrendTokens.map((token) => {
+      const stats = timeTokenMap.get(time)?.get(token)
+      return {
+        Time: time,
+        Token: token,
+        Count: Number(stats?.count) || 0,
+      }
+    })
+    if (otherTrendTokens.length > 0) {
+      const otherCount = otherTrendTokens.reduce((sum, token) => {
+        const stats = timeTokenMap.get(time)?.get(token)
+        return sum + (Number(stats?.count) || 0)
+      }, 0)
+      timeData.push({
+        Time: time,
+        Token: otherLabel,
+        Count: otherCount,
+      })
+    }
+    trendValues.push(...timeData)
+  })
+  trendValues.sort((a, b) => a.Time.localeCompare(b.Time))
+
+  // Rank bar: token call count ranking (top 20 + "Other" bucket)
+  const MAX_RANK_TOKENS = 20
+  const allRankValues = [...tokenTotalsMap.entries()]
+    .map(([token, stats]) => ({
+      Token: token,
+      Count: Number(stats.count) || 0,
+    }))
+    .sort((a, b) => b.Count - a.Count)
+
+  let rankValues: typeof allRankValues
+  if (allRankValues.length > MAX_RANK_TOKENS) {
+    const topTokens = allRankValues.slice(0, MAX_RANK_TOKENS)
+    const otherCount = allRankValues
+      .slice(MAX_RANK_TOKENS)
+      .reduce((sum, item) => sum + item.Count, 0)
+    rankValues = [...topTokens, { Token: otherLabel, Count: otherCount }]
+  } else {
+    rankValues = allRankValues
+  }
+
+  return {
+    spec_token_trend: {
+      type: 'area',
+      data: [{ id: 'tokenTrendData', values: trendValues }],
+      xField: 'Time',
+      yField: 'Count',
+      seriesField: 'Token',
+      stack: false,
+      legends: { visible: true, selectMode: 'single' },
+      color: tokenColor,
+      title: { visible: true, text: tt('Call Trend') },
+      tooltip: {
+        mark: {
+          content: [
+            {
+              key: (datum: Record<string, unknown>) => datum?.Token,
+              value: (datum: Record<string, unknown>) =>
+                formatInt(Number(datum?.Count) || 0),
+            },
+          ],
+        },
+      },
+      area: { style: { fillOpacity: 0.08, curveType: 'monotone' } },
+      line: { style: { lineWidth: 2, curveType: 'monotone' } },
+      point: { visible: false },
+      background: { fill: 'transparent' },
+      animation: true,
+    },
+    spec_token_proportion: {
+      type: 'pie',
+      data: [{ id: 'tokenPieData', values: pieValues }],
+      outerRadius: 0.8,
+      innerRadius: 0.5,
+      padAngle: 0.6,
+      valueField: 'value',
+      categoryField: 'type',
+      pie: {
+        style:
+          chartCornerRadius == null ? {} : { cornerRadius: chartCornerRadius },
+        state: {
+          hover: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 },
+          selected: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 },
+        },
+      },
+      title: { visible: true, text: tt('Call Count Distribution') },
+      legends: { visible: true, orient: 'left' },
+      label: { visible: true },
+      color: tokenColor,
+      tooltip: {
+        mark: {
+          content: [
+            {
+              key: (datum: Record<string, unknown>) => datum?.type,
+              value: (datum: Record<string, unknown>) =>
+                formatInt(Number(datum?.value) || 0),
+            },
+          ],
+        },
+      },
+      background: { fill: 'transparent' },
+      animation: true,
+    },
+    spec_token_ranking: {
+      type: 'bar',
+      data: [{ id: 'tokenRankData', values: rankValues }],
+      xField: 'Token',
+      yField: 'Count',
+      seriesField: 'Token',
+      legends: { visible: true, selectMode: 'single' },
+      color: tokenColor,
+      title: { visible: true, text: tt('Call Count Ranking') },
+      bar: {
+        state: { hover: { stroke: '#000', lineWidth: 1 } },
+      },
+      tooltip: {
+        mark: {
+          content: [
+            {
+              key: (datum: Record<string, unknown>) => datum?.Token,
+              value: (datum: Record<string, unknown>) =>
+                formatInt(Number(datum?.Count) || 0),
+            },
+          ],
+        },
+      },
+      background: { fill: 'transparent' },
+      animation: true,
+    },
+    totalCountDisplay: formatInt(totalCount),
+    totalQuotaDisplay: formatQuotaTotal(totalQuotaRaw),
+    totalTokensDisplay: formatTokenK(totalTokensRaw),
   }
 }

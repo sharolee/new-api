@@ -29,6 +29,24 @@ export interface QuotaDataItem {
   quota?: number
 }
 
+export interface TokenQuotaDataItem {
+  token_id: number
+  token_name: string
+  created_at: number
+  count: number
+  quota: number
+  token_used: number
+}
+
+export interface ProcessedTokenChartData {
+  spec_token_trend: VChartSpec
+  spec_token_proportion: VChartSpec
+  spec_token_ranking: VChartSpec
+  totalCountDisplay: string
+  totalQuotaDisplay: string
+  totalTokensDisplay: string
+}
+
 export interface FlowQuotaDataItem {
   user_id?: number
   username?: string
@@ -157,6 +175,8 @@ export type DashboardChartPreferences = {
 }
 
 export type ModelAnalyticsChartTab = 'trend' | 'proportion' | 'top'
+
+export type TokenAnalyticsChartTab = 'trend' | 'proportion' | 'top'
 
 export interface UserChartsFilters {
   timeGranularity: TimeGranularity

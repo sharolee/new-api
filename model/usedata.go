@@ -9,6 +9,18 @@ import (
 	"gorm.io/gorm"
 )
 
+// TokenQuotaData is a per-token aggregate row returned by the token analytics
+// endpoint. Unlike QuotaData it groups by token_id and carries the resolved
+// token name (empty string for deleted tokens).
+type TokenQuotaData struct {
+	TokenID   int    `json:"token_id"`
+	TokenName string `json:"token_name"`
+	CreatedAt int64  `json:"created_at"`
+	Count     int    `json:"count"`
+	Quota     int    `json:"quota"`
+	TokenUsed int    `json:"token_used"`
+}
+
 // QuotaData 柱状图数据
 type QuotaData struct {
 	Id        int    `json:"id"`
@@ -213,4 +225,128 @@ func GetAllQuotaDates(startTime int64, endTime int64, username string, aggregate
 	modelGroup := modelAggregateGroupColumn(aggregateBy)
 	err = DB.Table("quota_data").Select(modelSel+", sum(count) as count, sum(quota) as quota, sum(token_used) as token_used, created_at").Where("created_at >= ? and created_at <= ?", startTime, endTime).Group(modelGroup + ", created_at").Find(&quotaDatas).Error
 	return quotaDatas, err
+}
+
+// tokenNameByID resolves token_id to token name from the tokens table.
+// IDs with no matching token (deleted) are returned as empty string.
+// To avoid N+1 queries we batch-fetch all needed names in one query.
+func tokenNamesByID(tokenIDs []int) (map[int]string, error) {
+	if len(tokenIDs) == 0 {
+		return nil, nil
+	}
+	type tokenNameRow struct {
+		Id   int
+		Name string
+	}
+	var rows []tokenNameRow
+	err := DB.Table("tokens").Select("id, name").Where("id IN ?", tokenIDs).Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[int]string, len(rows))
+	for _, row := range rows {
+		names[row.Id] = row.Name
+	}
+	return names, nil
+}
+
+// GetQuotaDataGroupByToken aggregates quota_data by token_id, enriching each
+// row with the token name from the tokens table. Deleted tokens show an empty
+// name. The returned QuotaData items use TokenID and the Name field on the
+// Username column is left empty — the token name is carried via a separate
+// field to avoid overloading username semantics.
+func GetQuotaDataGroupByToken(startTime int64, endTime int64, username string) ([]*TokenQuotaData, error) {
+	type rawTokenAgg struct {
+		TokenID   int
+		CreatedAt int64
+		Count     int
+		Quota     int
+		TokenUsed int
+	}
+	var rows []rawTokenAgg
+	query := DB.Table("quota_data").
+		Select("token_id, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Where("created_at >= ? and created_at <= ? and token_id > 0", startTime, endTime).
+		Group("token_id, created_at").
+		Order("created_at ASC")
+	if username != "" {
+		query = query.Where("username = ?", username)
+	}
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	// Collect unique token IDs for batch name lookup
+	idSet := make(map[int]struct{})
+	for _, r := range rows {
+		idSet[r.TokenID] = struct{}{}
+	}
+	tokenIDs := make([]int, 0, len(idSet))
+	for id := range idSet {
+		tokenIDs = append(tokenIDs, id)
+	}
+	names, err := tokenNamesByID(tokenIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*TokenQuotaData, 0, len(rows))
+	for _, r := range rows {
+		result = append(result, &TokenQuotaData{
+			TokenID:   r.TokenID,
+			TokenName: names[r.TokenID],
+			CreatedAt: r.CreatedAt,
+			Count:     r.Count,
+			Quota:     r.Quota,
+			TokenUsed: r.TokenUsed,
+		})
+	}
+	return result, nil
+}
+
+// GetQuotaDataGroupByTokenByUser is the per-user variant, scoped to userId.
+func GetQuotaDataGroupByTokenByUser(userId int, startTime int64, endTime int64) ([]*TokenQuotaData, error) {
+	type rawTokenAgg struct {
+		TokenID   int
+		CreatedAt int64
+		Count     int
+		Quota     int
+		TokenUsed int
+	}
+	var rows []rawTokenAgg
+	err := DB.Table("quota_data").
+		Select("token_id, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Where("user_id = ? and created_at >= ? and created_at <= ? and token_id > 0", userId, startTime, endTime).
+		Group("token_id, created_at").
+		Order("created_at ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	idSet := make(map[int]struct{})
+	for _, r := range rows {
+		idSet[r.TokenID] = struct{}{}
+	}
+	tokenIDs := make([]int, 0, len(idSet))
+	for id := range idSet {
+		tokenIDs = append(tokenIDs, id)
+	}
+	names, err := tokenNamesByID(tokenIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*TokenQuotaData, 0, len(rows))
+	for _, r := range rows {
+		result = append(result, &TokenQuotaData{
+			TokenID:   r.TokenID,
+			TokenName: names[r.TokenID],
+			CreatedAt: r.CreatedAt,
+			Count:     r.Count,
+			Quota:     r.Quota,
+			TokenUsed: r.TokenUsed,
+		})
+	}
+	return result, nil
 }

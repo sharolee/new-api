@@ -23,6 +23,7 @@ import type {
   FlowQuotaDataItem,
   ModelRequestRow,
   QuotaDataItem,
+  TokenQuotaDataItem,
   UptimeGroupResult,
 } from './types'
 
@@ -124,6 +125,26 @@ export async function getModelRequestStatuses(
     ? '/api/data/model-status'
     : '/api/data/model-status/self'
   const res = await api.get<{ success: boolean; data: ModelRequestRow[] }>(
+    endpoint,
+    { params }
+  )
+  return res.data
+}
+
+// ----------------------------------------------------------------------------
+// Token Analytics
+// ----------------------------------------------------------------------------
+
+export async function getTokenQuotaDates(
+  params: {
+    start_timestamp: number
+    end_timestamp: number
+    username?: string
+  },
+  isAdmin = false
+) {
+  const endpoint = isAdmin ? '/api/data/tokens' : '/api/data/tokens/self'
+  const res = await api.get<{ success: boolean; data: TokenQuotaDataItem[] }>(
     endpoint,
     { params }
   )

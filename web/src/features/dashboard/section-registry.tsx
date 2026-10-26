@@ -35,6 +35,11 @@ const DASHBOARD_SECTIONS = [
     build: () => null,
   },
   {
+    id: 'tokens',
+    titleKey: 'Token Call Analytics',
+    build: () => null,
+  },
+  {
     id: 'model-status',
     titleKey: 'Model Status Grid',
     build: () => null,

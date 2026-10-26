@@ -55,6 +55,7 @@ import type {
   DashboardChartPreferences,
   DashboardFilters,
   QuotaDataItem,
+  TokenQuotaDataItem,
   UserChartsFilters,
 } from './types'
 
@@ -141,6 +142,30 @@ const LazyFlowCharts = lazy(() =>
   }))
 )
 
+const LazyTokenStatCards = lazy(() =>
+  import('./components/tokens/token-stat-cards').then((m) => ({
+    default: m.TokenStatCards,
+  }))
+)
+
+const LazyTokenCharts = lazy(() =>
+  import('./components/tokens/token-charts').then((m) => ({
+    default: m.TokenCharts,
+  }))
+)
+
+const LazyTokenConsumptionDistributionChart = lazy(() =>
+  import('./components/tokens/token-consumption-distribution-chart').then((m) => ({
+    default: m.TokenConsumptionDistributionChart,
+  }))
+)
+
+const LazyTokenTokenDistributionChart = lazy(() =>
+  import('./components/tokens/token-token-distribution-chart').then((m) => ({
+    default: m.TokenTokenDistributionChart,
+  }))
+)
+
 function LogStatCardsFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -211,6 +236,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   models: {
     titleKey: 'Model Call Analytics',
   },
+  tokens: {
+    titleKey: 'Token Call Analytics',
+  },
   'model-status': {
     titleKey: 'Model Status Grid',
   },
@@ -232,6 +260,8 @@ export function Dashboard() {
 
   const [modelData, setModelData] = useState<QuotaDataItem[]>([])
   const [dataLoading, setDataLoading] = useState(false)
+  const [tokenData, setTokenData] = useState<TokenQuotaDataItem[]>([])
+  const [tokenDataLoading, setTokenDataLoading] = useState(false)
   const [chartPreferences, setChartPreferences] =
     useState<DashboardChartPreferences>(() => getSavedChartPreferences())
   const [modelFilters, setModelFilters] = useState<DashboardFilters>(() =>
@@ -275,6 +305,14 @@ export function Dashboard() {
     (data: QuotaDataItem[], loading: boolean) => {
       setModelData(data)
       setDataLoading(loading)
+    },
+    []
+  )
+
+  const handleTokenDataUpdate = useCallback(
+    (data: TokenQuotaDataItem[], loading: boolean) => {
+      setTokenData(data)
+      setTokenDataLoading(loading)
     },
     []
   )
@@ -388,7 +426,24 @@ export function Dashboard() {
         />
       </>
     ) : null
-  const sectionActions = modelActions ?? flowActions
+  const tokenActions =
+    activeSection === 'tokens' ? (
+      <>
+        <ModelsChartPreferences
+          preferences={chartPreferences}
+          onPreferencesChange={handleChartPreferencesChange}
+        />
+        <ModelsFilter
+          preferences={chartPreferences}
+          currentFilters={modelFilters}
+          onFilterChange={handleFilterChange}
+          onReset={handleResetFilters}
+          titleKey='Token Analytics Filters'
+          descriptionKey='Filter token call analytics by time range and user.'
+        />
+      </>
+    ) : null
+  const sectionActions = modelActions ?? flowActions ?? tokenActions
 
   if (activeSection === 'overview') {
     return <OverviewDashboard />
@@ -468,6 +523,71 @@ export function Dashboard() {
                   <LazyConsumptionDistributionChart
                     data={modelData}
                     loading={dataLoading}
+                    defaultChartType={
+                      chartPreferences.consumptionDistributionChart
+                    }
+                    timeGranularity={
+                      modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
+                    }
+                  />
+                </Suspense>
+              </FadeIn>
+              <FadeIn delay={0.25}>
+                <Suspense fallback={<ModelChartsFallback />}>
+                  <LazyErrorAnalysisChart
+                    filters={{
+                      start_timestamp: modelFilters.start_timestamp,
+                      end_timestamp: modelFilters.end_timestamp,
+                      time_granularity: modelFilters.time_granularity,
+                      username: modelFilters.username,
+                    }}
+                    isAdmin={isAdmin}
+                  />
+                </Suspense>
+              </FadeIn>
+            </>
+          )}
+          {activeSection === 'tokens' && (
+            <>
+              <FadeIn>
+                <Suspense fallback={<LogStatCardsFallback />}>
+                  <LazyTokenStatCards
+                    filters={modelFilters}
+                    onDataUpdate={handleTokenDataUpdate}
+                  />
+                </Suspense>
+              </FadeIn>
+              <FadeIn delay={0.1}>
+                <Suspense fallback={<ModelChartsFallback />}>
+                  <LazyTokenTokenDistributionChart
+                    data={tokenData}
+                    loading={tokenDataLoading}
+                    defaultChartType={
+                      chartPreferences.consumptionDistributionChart
+                    }
+                    timeGranularity={
+                      modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
+                    }
+                  />
+                </Suspense>
+              </FadeIn>
+              <FadeIn delay={0.15}>
+                <Suspense fallback={<ModelChartsFallback />}>
+                  <LazyTokenCharts
+                    data={tokenData}
+                    loading={tokenDataLoading}
+                    defaultChartTab={chartPreferences.modelAnalyticsChart}
+                    timeGranularity={
+                      modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
+                    }
+                  />
+                </Suspense>
+              </FadeIn>
+              <FadeIn delay={0.2}>
+                <Suspense fallback={<ModelChartsFallback />}>
+                  <LazyTokenConsumptionDistributionChart
+                    data={tokenData}
+                    loading={tokenDataLoading}
                     defaultChartType={
                       chartPreferences.consumptionDistributionChart
                     }

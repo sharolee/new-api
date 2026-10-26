@@ -345,6 +345,8 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/error/self", middleware.UserAuth(), controller.GetUserErrorLogStats)
 		dataRoute.GET("/model-status", middleware.AdminAuth(), controller.GetAllModelRequestStatuses)
 		dataRoute.GET("/model-status/self", middleware.UserAuth(), controller.GetUserModelRequestStatuses)
+		dataRoute.GET("/tokens", middleware.AdminAuth(), controller.GetAllTokenQuotaDates)
+		dataRoute.GET("/tokens/self", middleware.UserAuth(), controller.GetUserTokenQuotaDates)
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
