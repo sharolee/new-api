@@ -26,7 +26,7 @@ import { useTranslation } from 'react-i18next'
 import { StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
-import { formatTimestampToDate } from '@/lib/format'
+import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
@@ -231,6 +231,22 @@ export function useTaskLogsColumns(
         headerLabel: t('Duration'),
         warningThresholdSec: 300,
       }),
+      {
+        accessorKey: 'quota',
+        header: t('Cost'),
+        cell: ({ row }) => {
+          const quota = row.getValue('quota') as number
+          if (!quota) {
+            return <span className='text-muted-foreground/60 text-xs'>-</span>
+          }
+          return (
+            <span className='font-mono text-xs font-medium tabular-nums'>
+              {formatLogQuota(quota)}
+            </span>
+          )
+        },
+        meta: { label: t('Cost') },
+      },
       {
         accessorKey: 'status',
         header: t('Status'),
