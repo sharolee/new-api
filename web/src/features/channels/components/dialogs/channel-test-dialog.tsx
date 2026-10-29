@@ -89,7 +89,6 @@ import {
   channelsQueryKeys,
   formatRelativeTime,
   formatResponseTime,
-  getResponseTimeConfig,
   handleTestChannel,
 } from '../../lib'
 import type {
@@ -227,64 +226,6 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
 }
 
-function LastTestSummary({ channel }: { channel: Channel }) {
-  const { t, i18n } = useTranslation()
-  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-  const testTime = channel.test_time
-  const responseTime = channel.response_time
-  const hasTestTime = testTime && testTime !== 0
-
-  const timeText = hasTestTime
-    ? formatRelativeTime(testTime, locale)
-    : t('Never')
-  const fullDate = hasTestTime ? formatTimestampToDate(testTime) : ''
-  const responseConfig = getResponseTimeConfig(responseTime)
-  const responseLabel = formatResponseTime(responseTime, t)
-
-  return (
-    <section
-      aria-label={t('Last test summary')}
-      className='flex flex-wrap items-center gap-x-6 gap-y-1 text-xs'
-    >
-      <span className='text-muted-foreground font-medium'>
-        {t('Last Tested')}
-      </span>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <StatusBadge
-                label={timeText}
-                variant='neutral'
-                size='sm'
-                copyable={false}
-                showDot={false}
-              />
-            }
-          />
-          <TooltipContent side='top'>
-            {hasTestTime ? (
-              <p className='font-mono text-sm'>{fullDate}</p>
-            ) : (
-              <p>{t('Never')}</p>
-            )}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <span className='text-muted-foreground font-medium'>
-        {t('Response')}
-      </span>
-      <StatusBadge
-        label={responseLabel}
-        variant={responseConfig.variant}
-        size='sm'
-        copyable={false}
-        showDot={false}
-      />
-    </section>
-  )
-}
-
 function normalizeInlineError(errorText: string) {
   return errorText.replaceAll(/\s+/g, ' ').trim()
 }
@@ -346,6 +287,8 @@ function getTestTableColumnClass(columnId: string) {
       return 'w-auto min-w-48 whitespace-nowrap'
     case 'status':
       return 'w-28 min-w-28 whitespace-nowrap'
+    case 'lastTested':
+      return 'w-36 min-w-36 whitespace-nowrap'
     case 'result':
       return 'w-80 min-w-80 max-w-80 whitespace-normal'
     case 'actions':
@@ -950,6 +893,17 @@ function ChannelTestDialogContent({
         size: 112,
       },
       {
+        id: 'lastTested',
+        header: t('Last Tested'),
+        cell: ({ row }) => {
+          const model = row.original.model
+          const result = testResults[model]
+          return <LastTestedCell result={result} />
+        },
+        enableSorting: false,
+        size: 140,
+      },
+      {
         id: 'result',
         header: t('Result'),
         cell: ({ row }) => {
@@ -1080,8 +1034,6 @@ function ChannelTestDialogContent({
             </div>
           </div>
 
-          <LastTestSummary channel={currentRow} />
-
           <div className='space-y-3 max-sm:has-[div[role="toolbar"]]:pb-16'>
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
               <div className='min-w-0 space-y-2'>
@@ -1170,6 +1122,7 @@ function ChannelTestDialogContent({
                     <col className='w-10 min-w-10' />
                     <col className='w-auto' />
                     <col className='w-28' />
+                    <col className='w-36' />
                     <col className='w-80' />
                     <col className='w-px' />
                   </colgroup>
@@ -1244,6 +1197,76 @@ function TestStatusCell({ result }: { result?: TestResult }) {
   }
 
   return <StatusBadge label={t('Failed')} variant='danger' copyable={false} />
+}
+
+function LastTestedCell({ result }: { result?: TestResult }) {
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+
+  if (!result || result.status === 'idle') {
+    return (
+      <span className='text-muted-foreground text-sm'>{t('Never')}</span>
+    )
+  }
+
+  if (result.status === 'testing') {
+    return (
+      <span className='text-muted-foreground text-sm'>{t('Testing...')}</span>
+    )
+  }
+
+  const completedAt = result.completedAt
+  if (!completedAt) {
+    return (
+      <span className='text-muted-foreground text-sm'>{t('Never')}</span>
+    )
+  }
+
+  const testTimeSeconds = Math.floor(completedAt / 1000)
+  const timeText = formatRelativeTime(testTimeSeconds, locale)
+  const fullDate = formatTimestampToDate(testTimeSeconds)
+
+  if (result.status === 'success') {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className='text-muted-foreground cursor-default text-sm whitespace-nowrap'>
+                {timeText}
+              </span>
+            }
+          />
+          <TooltipContent side='top'>
+            <p className='font-mono text-sm'>{fullDate}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
+
+  // error
+  const errorCode = result.errorCode
+  const errorLabel = errorCode
+    ? `${t('Failed')} (${errorCode})`
+    : t('Failed')
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className='text-muted-foreground cursor-default text-sm whitespace-nowrap'>
+              {timeText}
+            </span>
+          }
+        />
+        <TooltipContent side='top'>
+          <p className='font-mono text-sm'>{fullDate}</p>
+          <p className='text-xs'>{errorLabel}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
 }
 
 function TestResultCell({

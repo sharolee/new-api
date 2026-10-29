@@ -65,49 +65,36 @@ const baseChannel = channelSchema.parse({
   models: 'gpt-4o',
 })
 
-function summaryRegion() {
-  return within(screen.getByRole('region', { name: /Last test summary/ }))
-}
-
-describe('channel test dialog last test summary', () => {
-  test('shows relative test time and response speed when channel has test data', () => {
-    const nowSeconds = Math.floor(Date.now() / 1000)
-    const channel = {
-      ...baseChannel,
-      test_time: nowSeconds - 120,
-      response_time: 850,
-    }
-
-    renderDialog(channel)
-
-    expect(
-      screen.getByRole('dialog', { name: /Test Channel Connection/ })
-    ).toBeInTheDocument()
-    expect(summaryRegion().getByText('2m ago')).toBeInTheDocument()
-    expect(summaryRegion().getByText('850ms')).toBeInTheDocument()
-  })
-
-  test('falls back to Never / Not tested when channel has no test data', () => {
+describe('channel test dialog per-model last tested column', () => {
+  test('shows Last Tested column header in the model table', () => {
     renderDialog(baseChannel)
 
+    const table = screen.getByRole('region', { name: /Channel models/ })
     expect(
-      screen.getByRole('dialog', { name: /Test Channel Connection/ })
+      within(table).getByRole('columnheader', { name: /Last Tested/ })
     ).toBeInTheDocument()
-    expect(summaryRegion().getByText('Never')).toBeInTheDocument()
-    expect(summaryRegion().getByText('Not tested')).toBeInTheDocument()
   })
 
-  test('formats response time in seconds when value is 1000ms or more', () => {
-    const nowSeconds = Math.floor(Date.now() / 1000)
-    const channel = {
-      ...baseChannel,
-      test_time: nowSeconds - 3600,
-      response_time: 1500,
-    }
+  test('shows Never for models that have not been tested', () => {
+    renderDialog(baseChannel)
 
-    renderDialog(channel)
+    const table = screen.getByRole('region', { name: /Channel models/ })
+    // The model row for gpt-4o should show "Never" in the Last Tested column
+    const rows = within(table).getAllByRole('row')
+    // Find the data row (not header) containing the model name
+    const modelRow = rows.find((row) =>
+      within(row).queryByText('gpt-4o')
+    )
+    expect(modelRow).toBeDefined()
+    expect(within(modelRow as HTMLElement).getByText('Never')).toBeInTheDocument()
+  })
 
-    expect(summaryRegion().getByText('1h ago')).toBeInTheDocument()
-    expect(summaryRegion().getByText('1.50s')).toBeInTheDocument()
+  test('does not show channel-level last test summary section', () => {
+    renderDialog(baseChannel)
+
+    // The old "Last test summary" region should no longer exist
+    expect(
+      screen.queryByRole('region', { name: /Last test summary/ })
+    ).not.toBeInTheDocument()
   })
 })
