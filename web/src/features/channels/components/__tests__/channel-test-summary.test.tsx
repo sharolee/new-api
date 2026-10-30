@@ -17,13 +17,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { useEffect } from 'react'
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { getChannelTestResults } from '../../api'
 import { channelSchema } from '../../types'
 import { ChannelsDialogs } from '../channels-dialogs'
 import { ChannelsProvider, useChannels } from '../channels-provider'
+
+vi.mock('../../api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api')>()
+  return {
+    ...actual,
+    getChannelTestResults: vi.fn(async () => []),
+  }
+})
 
 function TestHarness({
   channel,
@@ -66,6 +75,10 @@ const baseChannel = channelSchema.parse({
 })
 
 describe('channel test dialog per-model last tested column', () => {
+  beforeEach(() => {
+    vi.mocked(getChannelTestResults).mockResolvedValue([])
+  })
+
   test('shows Last Tested column header in the model table', () => {
     renderDialog(baseChannel)
 
@@ -96,5 +109,24 @@ describe('channel test dialog per-model last tested column', () => {
     expect(
       screen.queryByRole('region', { name: /Last test summary/ })
     ).not.toBeInTheDocument()
+  })
+
+  test('restores the last successful test time of a model from the backend', async () => {
+    const testedAt = Math.floor(Date.now() / 1000) - 60
+    vi.mocked(getChannelTestResults).mockResolvedValue([
+      { model_name: 'gpt-4o', tested_at: testedAt },
+    ])
+
+    renderDialog(baseChannel)
+
+    const table = screen.getByRole('region', { name: /Channel models/ })
+    const modelRow = within(table)
+      .getAllByRole('row')
+      .find((row) => within(row).queryByText('gpt-4o')) as HTMLElement
+
+    await waitFor(() => {
+      expect(within(modelRow).queryByText('Never')).not.toBeInTheDocument()
+    })
+    expect(getChannelTestResults).toHaveBeenCalledWith(baseChannel.id)
   })
 })

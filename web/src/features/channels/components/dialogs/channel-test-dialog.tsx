@@ -84,7 +84,7 @@ import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { formatTimestampToDate } from '@/lib/format'
 
-import { updateChannel } from '../../api'
+import { getChannelTestResults, updateChannel } from '../../api'
 import {
   channelsQueryKeys,
   formatRelativeTime,
@@ -412,6 +412,44 @@ function ChannelTestDialogContent({
     setFailureDetails(null)
     setPagination({ pageIndex: 0, pageSize: 30 })
   }, [])
+
+  // Restore the last successful test time per model from the backend, because
+  // the local results are cleared whenever the dialog closes.
+  useEffect(() => {
+    if (!open) return
+
+    let cancelled = false
+    void getChannelTestResults(currentChannelId)
+      .then((results) => {
+        if (cancelled) return
+
+        const restored: Record<string, TestResult> = {}
+        for (const result of results) {
+          if (!result.model_name || !result.tested_at) continue
+          restored[result.model_name] = {
+            status: 'success',
+            completedAt: result.tested_at * 1000,
+          }
+        }
+        if (!Object.keys(restored).length) return
+
+        setTestResults((prev) => {
+          const next = { ...prev }
+          let changed = false
+          for (const [model, result] of Object.entries(restored)) {
+            if (next[model]) continue
+            next[model] = result
+            changed = true
+          }
+          return changed ? next : prev
+        })
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentChannelId, open])
 
   const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType)
   const effectiveStreamTest = !streamDisabled && isStreamTest

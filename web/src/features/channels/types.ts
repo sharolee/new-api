@@ -201,6 +201,11 @@ export interface ChannelTestResponse {
   }
 }
 
+export interface ChannelModelTestResult {
+  model_name: string
+  tested_at: number
+}
+
 export interface ChannelBalanceResponse {
   success: boolean
   message?: string

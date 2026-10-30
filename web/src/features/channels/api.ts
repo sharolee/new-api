@@ -27,6 +27,7 @@ import type {
   BatchSetTagParams,
   Channel,
   ChannelBalanceResponse,
+  ChannelModelTestResult,
   ChannelOpsResponse,
   ChannelTestResponse,
   CopyChannelParams,
@@ -272,6 +273,19 @@ export async function testChannel(
     channelActionConfig({ params })
   )
   return res.data
+}
+
+/**
+ * Get the latest successful manual test time per model for a channel
+ */
+export async function getChannelTestResults(
+  id: number
+): Promise<ChannelModelTestResult[]> {
+  const response = await api.get<{
+    success: boolean
+    data: ChannelModelTestResult[]
+  }>(`/api/channel/${id}/test-results`)
+  return requireServerSuccess(response.data).data
 }
 
 /**
